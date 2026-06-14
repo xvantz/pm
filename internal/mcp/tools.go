@@ -8,8 +8,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/xvantz/pm/internal/briefing"
-	"github.com/xvantz/pm/internal/store"
+	"github.com/xvantz/pm/internal/domain"
 	"github.com/xvantz/pm/internal/slug"
+	"github.com/xvantz/pm/internal/store"
 	"github.com/xvantz/pm/internal/types"
 )
 
@@ -336,6 +337,12 @@ func handleAddProject(st store.Store, ctx context.Context, args json.RawMessage)
 		UpdatedAt: now,
 	}
 
+	// Advance the counter BEFORE SaveProject so a crash between them
+	// skips a number (gap) rather than reusing one (duplicate).
+	if err := st.AdvanceNextNumber(); err != nil {
+		return "", fmt.Errorf("advance next number: %w", err)
+	}
+
 	if err := st.SaveProject(p); err != nil {
 		return "", fmt.Errorf("save project: %w", err)
 	}
@@ -402,10 +409,7 @@ func handleStartStep(st store.Store, ctx context.Context, args json.RawMessage) 
 
 	result, err := advanceStep(st, params.ProjectID, params.StepID, types.StepInProgress,
 		func(s types.Step) error {
-			if s.Status != types.StepTodo {
-				return fmt.Errorf("step %q is %s, can only start from todo", params.StepID, s.Status)
-			}
-			return nil
+			return domain.ValidateStepStart(s)
 		})
 	if err != nil {
 		return "", err
@@ -424,10 +428,7 @@ func handleReviewStep(st store.Store, ctx context.Context, args json.RawMessage)
 
 	result, err := advanceStep(st, params.ProjectID, params.StepID, types.StepReview,
 		func(s types.Step) error {
-			if s.Status != types.StepTodo && s.Status != types.StepInProgress {
-				return fmt.Errorf("step %q is %s, can only review todo or in_progress steps", params.StepID, s.Status)
-			}
-			return nil
+			return domain.ValidateStepReview(s)
 		})
 	if err != nil {
 		return "", err
@@ -446,16 +447,7 @@ func handleDoneStep(st store.Store, ctx context.Context, args json.RawMessage) (
 
 	result, err := advanceStep(st, params.ProjectID, params.StepID, types.StepDone,
 		func(s types.Step) error {
-			if s.Status != types.StepReview {
-				return fmt.Errorf("step %q is %s, must be in review before done", params.StepID, s.Status)
-			}
-			// Check for unresolved blockers
-			for _, b := range s.Blockers {
-				if b.Status == types.BlockerActive || b.Status == types.BlockerWaiting {
-					return fmt.Errorf("step %q has unresolved blockers — resolve them first", params.StepID)
-				}
-			}
-			return nil
+			return domain.ValidateStepDone(s)
 		})
 	if err != nil {
 		return "", err
@@ -685,7 +677,7 @@ func handleGetBriefing(st store.Store, ctx context.Context, args json.RawMessage
 		ProjectID string `json:"project_id,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		slog.Warn("get_briefing: ignoring invalid params", "error", err)
+		return "", fmt.Errorf("invalid args: %w", err)
 	}
 
 	select {

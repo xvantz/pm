@@ -1,9 +1,11 @@
 package cli
+
 import (
 	"fmt"
 	"log/slog"
 	"strings"
 
+	"github.com/xvantz/pm/internal/domain"
 	"github.com/xvantz/pm/internal/slug"
 	"github.com/xvantz/pm/internal/types"
 )
@@ -99,12 +101,11 @@ func cmdStepStart(args []string) error {
 
 	for i, s := range pd.Steps {
 		if s.ID == stepID {
-			if s.Status != types.StepTodo {
-				return fmt.Errorf("step %q is %s, can only start from todo", stepID, s.Status)
+			if err := domain.ValidateStepStart(s); err != nil {
+				return err
 			}
 
-			pd.Steps[i].Status = types.StepInProgress
-			pd.Steps[i].UpdatedAt = types.NowISO()
+			domain.StepStatusChange(&pd.Steps[i], types.StepInProgress, types.NowISO())
 
 			if err := st.SaveStep(pd.Steps[i]); err != nil {
 				return fmt.Errorf("save step: %w", err)
@@ -142,12 +143,11 @@ func cmdStepReview(args []string) error {
 
 	for i, s := range pd.Steps {
 		if s.ID == stepID {
-			if s.Status != types.StepTodo && s.Status != types.StepInProgress {
-				return fmt.Errorf("step %q is %s, can only review todo or in_progress steps", stepID, s.Status)
+			if err := domain.ValidateStepReview(s); err != nil {
+				return err
 			}
 
-			pd.Steps[i].Status = types.StepReview
-			pd.Steps[i].UpdatedAt = types.NowISO()
+			domain.StepStatusChange(&pd.Steps[i], types.StepReview, types.NowISO())
 
 			if err := st.SaveStep(pd.Steps[i]); err != nil {
 				return fmt.Errorf("save step: %w", err)
@@ -185,20 +185,11 @@ func cmdStepDone(args []string) error {
 
 	for i, s := range pd.Steps {
 		if s.ID == stepID {
-			// Can't mark a blocked step as done
-			for _, b := range s.Blockers {
-				if b.Status == types.BlockerActive || b.Status == types.BlockerWaiting {
-					return fmt.Errorf("step %q has unresolved blockers — resolve them first", stepID)
-				}
+			if err := domain.ValidateStepDone(s); err != nil {
+				return err
 			}
 
-			// Only review → done transition is allowed (agent → human handoff)
-			if s.Status != types.StepReview {
-				return fmt.Errorf("step %q is %s, must be in review before done\n  pm step review %s %s", stepID, s.Status, ref, stepID)
-			}
-
-			pd.Steps[i].Status = types.StepDone
-			pd.Steps[i].UpdatedAt = types.NowISO()
+			domain.StepStatusChange(&pd.Steps[i], types.StepDone, types.NowISO())
 
 			if err := st.SaveStep(pd.Steps[i]); err != nil {
 				return fmt.Errorf("save step: %w", err)

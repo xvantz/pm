@@ -217,7 +217,7 @@ func TestFileStore_NextNumber(t *testing.T) {
 	dir := t.TempDir()
 	s := NewFileStore(dir)
 
-	// Empty store -> 1
+	// Empty store -> 1 (initializes counter file)
 	n, err := s.NextNumber()
 	if err != nil {
 		t.Fatalf("NextNumber() error = %v", err)
@@ -226,19 +226,47 @@ func TestFileStore_NextNumber(t *testing.T) {
 		t.Errorf("NextNumber on empty store = %d, want 1", n)
 	}
 
-	// Add a project with number 5
-	p := types.Project{
-		ID: "0196f1b0-0000-7000-8000-000000000005", Number: 5,
-		Title: "Test", Status: types.StatusActive, CreatedAt: "2026-06-14",
+	// Write counter file directly, then read it back
+	if err := writeNextNumber(dir, 5); err != nil {
+		t.Fatalf("writeNextNumber() error = %v", err)
 	}
-	s.SaveProject(p)
+	n, err = s.NextNumber()
+	if err != nil {
+		t.Fatalf("NextNumber() error = %v", err)
+	}
+	if n != 5 {
+		t.Errorf("NextNumber after writeNextNumber(5) = %d, want 5", n)
+	}
 
+	// AdvanceNextNumber bumps to 6
+	if err := s.AdvanceNextNumber(); err != nil {
+		t.Fatalf("AdvanceNextNumber() error = %v", err)
+	}
 	n, err = s.NextNumber()
 	if err != nil {
 		t.Fatalf("NextNumber() error = %v", err)
 	}
 	if n != 6 {
-		t.Errorf("NextNumber = %d, want 6", n)
+		t.Errorf("NextNumber after AdvanceNextNumber = %d, want 6", n)
+	}
+
+	// Full workflow: create project using NextNumber + SaveProject + AdvanceNextNumber
+	p := types.Project{
+		ID: "0196f1b0-0000-7000-8000-000000000005", Number: 6,
+		Title: "Test", Status: types.StatusActive, CreatedAt: "2026-06-14",
+	}
+	if err := s.SaveProject(p); err != nil {
+		t.Fatalf("SaveProject() error = %v", err)
+	}
+	if err := s.AdvanceNextNumber(); err != nil {
+		t.Fatalf("AdvanceNextNumber() error = %v", err)
+	}
+	n, err = s.NextNumber()
+	if err != nil {
+		t.Fatalf("NextNumber() error = %v", err)
+	}
+	if n != 7 {
+		t.Errorf("NextNumber after full workflow = %d, want 7", n)
 	}
 }
 

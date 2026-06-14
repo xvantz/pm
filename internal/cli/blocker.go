@@ -82,6 +82,7 @@ func cmdBlockerAdd(args []string) error {
 		ProjectID: pd.Project.ID,
 		StepID:    stepSlug,
 		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
 	if err := st.SaveBlocker(blocker); err != nil {

@@ -47,7 +47,11 @@ func cmdProjectCreate(args []string) error {
 		return err
 	}
 
-	id := uuid.Must(uuid.NewV7()).String()
+	uid, err := uuid.NewV7()
+	if err != nil {
+		return fmt.Errorf("generate project id: %w", err)
+	}
+	id := uid.String()
 	number, err := st.NextNumber()
 	if err != nil {
 		return fmt.Errorf("next number: %w", err)
@@ -61,6 +65,12 @@ func cmdProjectCreate(args []string) error {
 		Status:    types.StatusIdea,
 		CreatedAt: now,
 		UpdatedAt: now,
+	}
+
+	// Advance the counter BEFORE SaveProject so a crash between them
+	// skips a number (gap) rather than reusing one (duplicate).
+	if err := st.AdvanceNextNumber(); err != nil {
+		return fmt.Errorf("advance next number: %w", err)
 	}
 
 	if err := st.SaveProject(p); err != nil {

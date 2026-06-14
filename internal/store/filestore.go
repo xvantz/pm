@@ -6,10 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/xvantz/pm/internal/domain"
 	"github.com/xvantz/pm/internal/types"
 )
 
@@ -20,6 +23,11 @@ import (
 type FileStore struct {
 	root string // e.g. ./pm/projects
 }
+
+const (
+	metaDir     = "_meta"
+	nextNumFile = "next_number"
+)
 
 func NewFileStore(root string) *FileStore {
 	return &FileStore{root: root}
@@ -99,17 +107,81 @@ func (s *FileStore) ResolveProject(ref string) (*types.ProjectData, error) {
 }
 
 func (s *FileStore) NextNumber() (int, error) {
-	projects, err := s.ListProjects()
+	return readNextNumber(s.root)
+}
+
+func readNextNumber(root string) (int, error) {
+	path := filepath.Join(root, metaDir, nextNumFile)
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		// First run — scan projects for backward compatibility
+		n, err := scanNextNumber(root)
+		if err != nil {
+			return 0, err
+		}
+		// Initialize the counter file so future calls are O(1)
+		dir := filepath.Join(root, metaDir)
+		if mkErr := os.MkdirAll(dir, 0755); mkErr != nil {
+			return 0, fmt.Errorf("create meta dir: %w", mkErr)
+		}
+		if wErr := writeAtomic(path, []byte(strconv.Itoa(n))); wErr != nil {
+			// Non-fatal: we can still return the correct number
+			_ = wErr
+		}
+		return n, nil
+	}
 	if err != nil {
-		return 0, fmt.Errorf("list projects for next number: %w", err)
+		return 0, fmt.Errorf("read next number: %w", err)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		// Corrupted file — repair and fall back to scanning
+		n, err = scanNextNumber(root)
+		if err != nil {
+			return 0, err
+		}
+		writeNextNumber(root, n) // best-effort repair
+		return n, nil
+	}
+	return n, nil
+}
+
+func scanNextNumber(root string) (int, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return 0, fmt.Errorf("scan next number: %w", err)
 	}
 	maxN := 0
-	for _, p := range projects {
+	for _, e := range entries {
+		if !e.IsDir() || e.Name() == metaDir || e.Name() == ".trash" {
+			continue
+		}
+		p, err := readProjectFile(root, e.Name())
+		if err != nil {
+			continue
+		}
 		if p.Number > maxN {
 			maxN = p.Number
 		}
 	}
 	return maxN + 1, nil
+}
+
+func writeNextNumber(root string, n int) error {
+	dir := filepath.Join(root, metaDir)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create meta dir: %w", err)
+	}
+	path := filepath.Join(dir, nextNumFile)
+	return writeAtomic(path, []byte(strconv.Itoa(n)))
+}
+
+func (s *FileStore) AdvanceNextNumber() error {
+	n, err := readNextNumber(s.root)
+	if err != nil {
+		return err
+	}
+	return writeNextNumber(s.root, n+1)
 }
 
 func (s *FileStore) SaveProject(p types.Project) error {
@@ -202,7 +274,14 @@ func (s *FileStore) DeleteProject(id string) error {
 	}
 	defer unlock()
 
-	return os.RemoveAll(s.projectDir(id))
+	trashDir := filepath.Join(s.root, ".trash")
+	if err := os.MkdirAll(trashDir, 0755); err != nil {
+		return fmt.Errorf("create trash: %w", err)
+	}
+
+	src := s.projectDir(id)
+	dst := filepath.Join(trashDir, fmt.Sprintf("%s-%d", id, time.Now().Unix()))
+	return os.Rename(src, dst)
 }
 
 func (s *FileStore) DeleteStep(projectID, stepID string) error {
@@ -231,14 +310,7 @@ func (s *FileStore) DeleteBlocker(projectID, stepID, blockerID string) error {
 			for j, b := range st.Blockers {
 				if b.ID == blockerID {
 					steps[i].Blockers = append(st.Blockers[:j], st.Blockers[j+1:]...)
-					stillBlocked := false
-					for _, remaining := range steps[i].Blockers {
-						if remaining.Status == types.BlockerWaiting || remaining.Status == types.BlockerActive {
-							stillBlocked = true
-							break
-						}
-					}
-					if !stillBlocked {
+					if !domain.HasUnresolvedBlockers(steps[i].Blockers) {
 						steps[i].Status = types.StepTodo
 					}
 					return s.saveStep(steps[i])
@@ -258,6 +330,50 @@ func (s *FileStore) DeleteDecision(projectID, decisionID string) error {
 	defer unlock()
 
 	return os.Remove(filepath.Join(s.decisionsDir(projectID), decisionID+".yaml"))
+}
+
+func (s *FileStore) TrashList() ([]string, error) {
+	trashDir := filepath.Join(s.root, ".trash")
+	entries, err := os.ReadDir(trashDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names, nil
+}
+
+func (s *FileStore) TrashRestore(trashName string) error {
+	trashDir := filepath.Join(s.root, ".trash")
+	src := filepath.Join(trashDir, trashName)
+	info, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("trash item %q not found: %w", trashName, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("trash item %q is not a directory", trashName)
+	}
+
+	// Extract original project ID from the trash name format <id>-<timestamp>
+	parts := strings.Split(trashName, "-")
+	if len(parts) < 2 {
+		return fmt.Errorf("invalid trash name format: %q", trashName)
+	}
+	// Project ID is everything except the last part (timestamp)
+	projectID := strings.Join(parts[:len(parts)-1], "-")
+
+	dst := s.projectDir(projectID)
+	return os.Rename(src, dst)
+}
+
+func (s *FileStore) TrashClean() error {
+	trashDir := filepath.Join(s.root, ".trash")
+	return os.RemoveAll(trashDir)
 }
 
 // ---------------------------------------------------------------------------
@@ -281,10 +397,12 @@ func (s *FileStore) decisionsDir(id string) string {
 func (s *FileStore) loadProjectData(p types.Project) (*types.ProjectData, error) {
 	steps, err := s.GetSteps(p.ID)
 	if err != nil {
+		slog.Warn("load steps for project", "project", p.ID, "error", err)
 		steps = nil
 	}
 	decisions, err := s.GetDecisions(p.ID)
 	if err != nil {
+		slog.Warn("load decisions for project", "project", p.ID, "error", err)
 		decisions = nil
 	}
 	return &types.ProjectData{
@@ -294,8 +412,9 @@ func (s *FileStore) loadProjectData(p types.Project) (*types.ProjectData, error)
 	}, nil
 }
 
-func (s *FileStore) readProject(id string) (*types.Project, error) {
-	path := filepath.Join(s.projectDir(id), "project.yaml")
+// readProjectFile reads a single project.yaml from disk, given the store root and project ID.
+func readProjectFile(root, id string) (*types.Project, error) {
+	path := filepath.Join(root, id, "project.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read project %s: %w", id, err)
@@ -305,6 +424,10 @@ func (s *FileStore) readProject(id string) (*types.Project, error) {
 		return nil, fmt.Errorf("parse project %s: %w", id, err)
 	}
 	return &p, nil
+}
+
+func (s *FileStore) readProject(id string) (*types.Project, error) {
+	return readProjectFile(s.root, id)
 }
 
 func (s *FileStore) GetSteps(projectID string) ([]types.Step, error) {

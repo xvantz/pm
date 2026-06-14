@@ -75,6 +75,10 @@ func (s *MockStore) NextNumber() (int, error) {
 	return maxN + 1, nil
 }
 
+func (s *MockStore) AdvanceNextNumber() error {
+	return nil // MockStore tracks numbers in-memory; no-op is fine
+}
+
 func (s *MockStore) GetSteps(projectID string) ([]types.Step, error) {
 	pd, ok := s.projects[projectID]
 	if !ok {
@@ -190,6 +194,12 @@ func (s *MockStore) DeleteProject(id string) error {
 	delete(s.projects, id)
 	return nil
 }
+
+func (m *MockStore) TrashList() ([]string, error) { return nil, nil }
+
+func (m *MockStore) TrashRestore(trashName string) error { return fmt.Errorf("not implemented in mock") }
+
+func (m *MockStore) TrashClean() error { return nil }
 
 func (s *MockStore) DeleteStep(projectID, stepID string) error {
 	pd, ok := s.projects[projectID]

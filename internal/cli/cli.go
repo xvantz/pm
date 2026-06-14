@@ -31,10 +31,14 @@ func Run(args []string) error {
 		return cmdBlocker(args[1:])
 	case "decision":
 		return cmdDecision(args[1:])
+	case "doctor":
+		return cmdDoctor(args[1:])
 	case "add":
 		return cmdAdd(args[1:])
 	case "del":
 		return cmdDel(args[1:])
+	case "trash":
+		return cmdTrash(args[1:])
 	case "help", "--help", "-h":
 		PrintUsage()
 		return nil
@@ -56,6 +60,9 @@ Usage:
   pm del step <proj> <step>      удалить шаг
   pm del blocker <proj> <step> <blk>  удалить блокер
   pm del decision <proj> <dec>   удалить решение
+  pm trash list                  список проектов в корзине
+  pm trash restore <name>        восстановить проект из корзины
+  pm trash clean                 очистить корзину
   pm project list                список проектов
   pm project show <id>           детали проекта
   pm project goal <id> <text>    установить цель проекта
@@ -68,6 +75,7 @@ Usage:
   pm blocker resolve <proj> <step> <blk>  снять блокер
   pm blocker list <id>           список блокеров проекта
   pm decision list <id>          список решений
+  pm doctor                      проверка целостности хранилища
   pm briefing [flags]            показать брифинг
   pm help                        эта справка
 
