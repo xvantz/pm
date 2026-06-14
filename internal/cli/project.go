@@ -114,7 +114,7 @@ func cmdProjectShow(args []string) error {
 
 	pd, err := st.ResolveProject(args[0])
 	if err != nil {
-		return err
+		return fmt.Errorf("resolve %q: %w", args[0], err)
 	}
 
 	p := pd.Project

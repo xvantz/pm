@@ -31,11 +31,11 @@ func cmdInit(args []string) error {
 	if out, err := gitInit.CombinedOutput(); err != nil {
 		slog.Warn("git init failed", "error", err, "output", string(out))
 		slog.Warn("you can git init the pm directory manually")
-	} else {
-		gitignore := "# PM ignores nothing by default — all data is meant to be tracked.\n# Add project-specific ignores below if needed.\n"
-		if err := os.WriteFile(filepath.Join(pmDir, ".gitignore"), []byte(gitignore), 0644); err != nil {
-			slog.Warn("could not create .gitignore", "error", err)
-		}
+	}
+
+	gitignore := "# PM ignores nothing by default — all data is meant to be tracked.\n# Add project-specific ignores below if needed.\n"
+	if err := os.WriteFile(filepath.Join(pmDir, ".gitignore"), []byte(gitignore), 0644); err != nil {
+		slog.Warn("could not create .gitignore", "error", err)
 	}
 
 	fmt.Printf("PM initialized at %s\n", pmDir)

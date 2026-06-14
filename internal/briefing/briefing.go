@@ -92,9 +92,6 @@ func Generate(cfg Config) (*Briefing, error) {
 		if err != nil {
 			return nil, err
 		}
-		if pd == nil {
-			return nil, fmt.Errorf("project %s not found", cfg.FilterProject)
-		}
 		projects = []types.Project{pd.Project}
 	}
 
@@ -118,8 +115,8 @@ func Generate(cfg Config) (*Briefing, error) {
 	weekStart := briefingDate.AddDate(0, 0, -7)
 
 	for _, p := range projects {
-		pd, _ := cfg.Store.GetProject(p.ID)
-		if pd == nil {
+		pd, err := cfg.Store.GetProject(p.ID)
+		if err != nil {
 			continue
 		}
 
