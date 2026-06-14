@@ -6,12 +6,17 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"syscall"
 
 	"gopkg.in/yaml.v3"
+
 	"github.com/xvantz/pm/internal/types"
 )
 
 // FileStore reads/writes project data from YAML files on disk.
+// All write operations use POSIX file locks (flock) on the project directory
+// to coordinate between concurrent CLI and MCP processes. Writes are atomic:
+// data is written to a temp file, synced to disk, then renamed into place.
 type FileStore struct {
 	root string // e.g. ./pm/projects
 }
@@ -20,17 +25,9 @@ func NewFileStore(root string) *FileStore {
 	return &FileStore{root: root}
 }
 
-func (s *FileStore) projectDir(id string) string {
-	return filepath.Join(s.root, id)
-}
-
-func (s *FileStore) stepsDir(id string) string {
-	return filepath.Join(s.root, id, "steps")
-}
-
-func (s *FileStore) decisionsDir(id string) string {
-	return filepath.Join(s.root, id, "decisions")
-}
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
 
 func (s *FileStore) ListProjects() ([]types.Project, error) {
 	entries, err := os.ReadDir(s.root)
@@ -58,19 +55,7 @@ func (s *FileStore) GetProject(id string) (*types.ProjectData, error) {
 	if err != nil {
 		return nil, err
 	}
-	steps, err := s.GetSteps(id)
-	if err != nil {
-		steps = nil
-	}
-	decisions, err := s.GetDecisions(id)
-	if err != nil {
-		decisions = nil
-	}
-	return &types.ProjectData{
-		Project:   *project,
-		Steps:     steps,
-		Decisions: decisions,
-	}, nil
+	return s.loadProjectData(*project)
 }
 
 func (s *FileStore) ResolveProject(ref string) (*types.ProjectData, error) {
@@ -82,48 +67,35 @@ func (s *FileStore) ResolveProject(ref string) (*types.ProjectData, error) {
 		}
 		for _, p := range projects {
 			if p.Number == n {
-				// Already have project metadata from ListProjects — avoid re-read
-				steps, err := s.GetSteps(p.ID)
-				if err != nil {
-					steps = nil
-				}
-				decisions, err := s.GetDecisions(p.ID)
-				if err != nil {
-					decisions = nil
-				}
-				return &types.ProjectData{
-					Project:   p,
-					Steps:     steps,
-					Decisions: decisions,
-				}, nil
+				return s.loadProjectData(p)
 			}
 		}
 		return nil, fmt.Errorf("project #%d not found", n)
 	}
 
-	// Try as exact UUID first (fast path)
-	if pd, err := s.GetProject(ref); err == nil {
-		return pd, nil
-	}
-
-	// Try as UUID prefix (scan required)
+	// Try as UUID (exact or prefix) — single scan
 	projects, err := s.ListProjects()
 	if err != nil {
 		return nil, err
 	}
+
 	var matches []types.Project
 	for _, p := range projects {
+		if p.ID == ref {
+			return s.loadProjectData(p)
+		}
 		if len(p.ID) >= len(ref) && p.ID[:len(ref)] == ref {
 			matches = append(matches, p)
 		}
 	}
+
 	if len(matches) == 0 {
 		return nil, fmt.Errorf("project %q not found", ref)
 	}
 	if len(matches) > 1 {
 		return nil, fmt.Errorf("ambiguous project prefix %q matches %d projects", ref, len(matches))
 	}
-	return s.GetProject(matches[0].ID)
+	return s.loadProjectData(matches[0])
 }
 
 func (s *FileStore) NextNumber() (int, error) {
@@ -138,6 +110,188 @@ func (s *FileStore) NextNumber() (int, error) {
 		}
 	}
 	return maxN + 1, nil
+}
+
+func (s *FileStore) SaveProject(p types.Project) error {
+	unlock, err := s.lockProject(p.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	dir := s.projectDir(p.ID)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	return writeYAMLAtomic(filepath.Join(dir, "project.yaml"), p)
+}
+
+func (s *FileStore) SaveStep(st types.Step) error {
+	unlock, err := s.lockProject(st.ProjectID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	return s.saveStep(st)
+}
+
+func (s *FileStore) saveStep(st types.Step) error {
+	dir := s.stepsDir(st.ProjectID)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	return writeYAMLAtomic(filepath.Join(dir, st.ID+".yaml"), st)
+}
+
+func (s *FileStore) SaveBlocker(b types.Blocker) error {
+	if b.StepID == "" {
+		return fmt.Errorf("blocker has no StepID")
+	}
+
+	unlock, err := s.lockProject(b.ProjectID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	steps, err := s.GetSteps(b.ProjectID)
+	if err != nil {
+		return err
+	}
+	for i, st := range steps {
+		if st.ID == b.StepID {
+			found := false
+			for j, existing := range st.Blockers {
+				if existing.ID == b.ID {
+					steps[i].Blockers[j] = b
+					found = true
+					break
+				}
+			}
+			if !found {
+				steps[i].Blockers = append(steps[i].Blockers, b)
+			}
+			if b.Status != types.BlockerResolved {
+				steps[i].Status = types.StepBlocked
+			}
+			return s.saveStep(steps[i])
+		}
+	}
+	return fmt.Errorf("step %q not found", b.StepID)
+}
+
+func (s *FileStore) SaveDecision(d types.Decision) error {
+	unlock, err := s.lockProject(d.ProjectID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	dir := s.decisionsDir(d.ProjectID)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	return writeYAMLAtomic(filepath.Join(dir, d.ID+".yaml"), d)
+}
+
+func (s *FileStore) DeleteProject(id string) error {
+	unlock, err := s.lockProject(id)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	return os.RemoveAll(s.projectDir(id))
+}
+
+func (s *FileStore) DeleteStep(projectID, stepID string) error {
+	unlock, err := s.lockProject(projectID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	return os.Remove(filepath.Join(s.stepsDir(projectID), stepID+".yaml"))
+}
+
+func (s *FileStore) DeleteBlocker(projectID, stepID, blockerID string) error {
+	unlock, err := s.lockProject(projectID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	steps, err := s.GetSteps(projectID)
+	if err != nil {
+		return err
+	}
+	for i, st := range steps {
+		if st.ID == stepID {
+			for j, b := range st.Blockers {
+				if b.ID == blockerID {
+					steps[i].Blockers = append(st.Blockers[:j], st.Blockers[j+1:]...)
+					stillBlocked := false
+					for _, remaining := range steps[i].Blockers {
+						if remaining.Status == types.BlockerWaiting || remaining.Status == types.BlockerActive {
+							stillBlocked = true
+							break
+						}
+					}
+					if !stillBlocked {
+						steps[i].Status = types.StepTodo
+					}
+					return s.saveStep(steps[i])
+				}
+			}
+			return fmt.Errorf("blocker %q not found in step %q", blockerID, stepID)
+		}
+	}
+	return fmt.Errorf("step %q not found", stepID)
+}
+
+func (s *FileStore) DeleteDecision(projectID, decisionID string) error {
+	unlock, err := s.lockProject(projectID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	return os.Remove(filepath.Join(s.decisionsDir(projectID), decisionID+".yaml"))
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+func (s *FileStore) projectDir(id string) string {
+	return filepath.Join(s.root, id)
+}
+
+func (s *FileStore) stepsDir(id string) string {
+	return filepath.Join(s.root, id, "steps")
+}
+
+func (s *FileStore) decisionsDir(id string) string {
+	return filepath.Join(s.root, id, "decisions")
+}
+
+// loadProjectData attaches steps and decisions to a project metadata struct
+// without re-reading project.yaml (the caller already parsed it).
+func (s *FileStore) loadProjectData(p types.Project) (*types.ProjectData, error) {
+	steps, err := s.GetSteps(p.ID)
+	if err != nil {
+		steps = nil
+	}
+	decisions, err := s.GetDecisions(p.ID)
+	if err != nil {
+		decisions = nil
+	}
+	return &types.ProjectData{
+		Project:   p,
+		Steps:     steps,
+		Decisions: decisions,
+	}, nil
 }
 
 func (s *FileStore) readProject(id string) (*types.Project, error) {
@@ -175,108 +329,123 @@ func (s *FileStore) GetDecisions(projectID string) ([]types.Decision, error) {
 	return readYAMLDir[types.Decision](dir)
 }
 
-func (s *FileStore) SaveProject(p types.Project) error {
-	dir := s.projectDir(p.ID)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
+// ---------------------------------------------------------------------------
+// Locking
+// ---------------------------------------------------------------------------
+
+// lockProject acquires an exclusive POSIX file lock (flock) on the project
+// directory. It blocks until the lock is acquired or an error occurs.
+// The lock is automatically released when the process exits.
+// Returns an unlock function that MUST be called (typically with defer).
+func (s *FileStore) lockProject(projectID string) (unlock func(), err error) {
+	lockPath := filepath.Join(s.projectDir(projectID), ".pm.lock")
+
+	// Ensure the project directory exists for the lock file.
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0755); err != nil {
+		return nil, fmt.Errorf("create lock dir: %w", err)
 	}
-	return writeYAML(filepath.Join(dir, "project.yaml"), p)
+
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("open lock %s: %w", lockPath, err)
+	}
+
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("flock %s: %w", lockPath, err)
+	}
+
+	var once bool
+	return func() {
+		if once {
+			return
+		}
+		once = true
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}, nil
 }
 
-func (s *FileStore) SaveStep(st types.Step) error {
-	dir := s.stepsDir(st.ProjectID)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-	return writeYAML(filepath.Join(dir, st.ID+".yaml"), st)
-}
+// ---------------------------------------------------------------------------
+// Atomic YAML write
+// ---------------------------------------------------------------------------
 
-func (s *FileStore) SaveBlocker(b types.Blocker) error {
-	if b.StepID == "" {
-		return fmt.Errorf("blocker has no StepID")
-	}
-	steps, err := s.GetSteps(b.ProjectID)
+// writeYAMLAtomic marshals v to YAML and writes it to path atomically.
+// It writes to a temporary file in the same directory (same filesystem),
+// calls fsync on both the file and its parent directory, then renames into
+// place. If the process crashes mid-write, the target file remains intact.
+func writeYAMLAtomic(path string, v any) error {
+	data, err := yaml.Marshal(v)
 	if err != nil {
 		return err
 	}
-	for i, st := range steps {
-		if st.ID == b.StepID {
-			found := false
-			for j, existing := range st.Blockers {
-				if existing.ID == b.ID {
-					steps[i].Blockers[j] = b
-					found = true
-					break
-				}
-			}
-			if !found {
-				steps[i].Blockers = append(steps[i].Blockers, b)
-			}
-			// Adding/updating a blocker marks the step as blocked (unless resolved)
-			if b.Status != types.BlockerResolved {
-				steps[i].Status = types.StepBlocked
-			}
-			return s.SaveStep(steps[i])
+	return writeAtomic(path, data)
+}
+
+// writeAtomic writes data to path atomically with full fsync.
+func writeAtomic(path string, data []byte) error {
+	dir := filepath.Dir(path)
+
+	// Temp file in the same directory (same filesystem → rename is atomic).
+	tmp, err := os.CreateTemp(dir, ".tmp-*.yaml")
+	if err != nil {
+		return fmt.Errorf("create temp: %w", err)
+	}
+	tmpPath := tmp.Name()
+
+	// Clean up temp on failure.
+	cleanup := true
+	defer func() {
+		if cleanup {
+			tmp.Close()
+			os.Remove(tmpPath)
 		}
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		return fmt.Errorf("write temp: %w", err)
 	}
-	return fmt.Errorf("step %q not found", b.StepID)
-}
 
-func (s *FileStore) SaveDecision(d types.Decision) error {
-	dir := s.decisionsDir(d.ProjectID)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
+	// fsync data to disk.
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("sync temp: %w", err)
 	}
-	return writeYAML(filepath.Join(dir, d.ID+".yaml"), d)
+
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp: %w", err)
+	}
+
+	// Atomic rename.
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("rename: %w", err)
+	}
+
+	// fsync parent directory so the new directory entry is durable.
+	cleanup = false
+	return fsyncDir(dir)
 }
 
-func (s *FileStore) DeleteProject(id string) error {
-	return os.RemoveAll(s.projectDir(id))
-}
-
-func (s *FileStore) DeleteStep(projectID, stepID string) error {
-	return os.Remove(filepath.Join(s.stepsDir(projectID), stepID+".yaml"))
-}
-
-func (s *FileStore) DeleteBlocker(projectID, stepID, blockerID string) error {
-	steps, err := s.GetSteps(projectID)
+// fsyncDir opens dir and calls Sync() on it, ensuring the directory entry
+// for a newly renamed file is persisted to disk.
+func fsyncDir(dir string) error {
+	d, err := os.Open(dir)
 	if err != nil {
 		return err
 	}
-	for i, st := range steps {
-		if st.ID == stepID {
-			for j, b := range st.Blockers {
-				if b.ID == blockerID {
-					steps[i].Blockers = append(st.Blockers[:j], st.Blockers[j+1:]...)
-					// If no more blockers, step goes back to todo
-					stillBlocked := false
-					for _, remaining := range steps[i].Blockers {
-						if remaining.Status == types.BlockerWaiting || remaining.Status == types.BlockerActive {
-							stillBlocked = true
-							break
-						}
-					}
-					if !stillBlocked {
-						steps[i].Status = types.StepTodo
-					}
-					return s.SaveStep(steps[i])
-				}
-			}
-			return fmt.Errorf("blocker %q not found in step %q", blockerID, stepID)
-		}
-	}
-	return fmt.Errorf("step %q not found", stepID)
+	err = d.Sync()
+	d.Close()
+	return err
 }
 
-func (s *FileStore) DeleteDecision(projectID, decisionID string) error {
-	return os.Remove(filepath.Join(s.decisionsDir(projectID), decisionID+".yaml"))
-}
+// ---------------------------------------------------------------------------
+// Generic YAML directory reader
+// ---------------------------------------------------------------------------
 
 func readYAMLDir[T any](dir string) ([]T, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return nil, nil // empty directory = no data
 		}
 		return nil, err
 	}
@@ -299,12 +468,4 @@ func readYAMLDir[T any](dir string) ([]T, error) {
 		items = append(items, item)
 	}
 	return items, nil
-}
-
-func writeYAML(path string, v any) error {
-	data, err := yaml.Marshal(v)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0644)
 }
