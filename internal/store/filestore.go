@@ -186,6 +186,8 @@ func (s *FileStore) SaveBlocker(b types.Blocker) error {
 			if !found {
 				steps[i].Blockers = append(steps[i].Blockers, b)
 			}
+			// Adding/updating a blocker marks the step as blocked
+			steps[i].Status = types.StepBlocked
 			return s.SaveStep(steps[i])
 		}
 	}

@@ -85,7 +85,12 @@ func (s *MockStore) GetDecisions(projectID string) ([]types.Decision, error) {
 }
 
 func (s *MockStore) SaveProject(p types.Project) error {
-	s.projects[p.ID] = &types.ProjectData{Project: p}
+	existing, ok := s.projects[p.ID]
+	if ok {
+		existing.Project = p
+	} else {
+		s.projects[p.ID] = &types.ProjectData{Project: p}
+	}
 	return nil
 }
 
@@ -125,6 +130,8 @@ func (s *MockStore) SaveBlocker(b types.Blocker) error {
 				if !found {
 					pd.Steps[i].Blockers = append(pd.Steps[i].Blockers, b)
 				}
+				// Adding/updating a blocker marks the step as blocked
+				pd.Steps[i].Status = types.StepBlocked
 				return nil
 			}
 		}

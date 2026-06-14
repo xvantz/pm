@@ -248,6 +248,9 @@ func cmdStepList(args []string) error {
 	fmt.Println(strings.Repeat("-", 60))
 	for _, s := range pd.Steps {
 		fmt.Printf("  [%-11s] %s  (%s)\n", s.Status, s.Title, s.ID)
+		for _, b := range s.Blockers {
+			fmt.Printf("     🚫 [%s] %s\n", b.Status, b.Title)
+		}
 	}
 	return nil
 }

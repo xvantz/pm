@@ -89,9 +89,7 @@ func cmdBlockerAdd(args []string) error {
 		return fmt.Errorf("save blocker: %w", err)
 	}
 
-	// Mark step as blocked
-	targetStep.Status = types.StepBlocked
-	st.SaveStep(*targetStep)
+	// SaveBlocker already set step status to StepBlocked and saved it
 
 	pd.Project.UpdatedAt = now
 	st.SaveProject(pd.Project)
@@ -121,29 +119,41 @@ func cmdBlockerResolve(args []string) error {
 		return fmt.Errorf("project %q not found", ref)
 	}
 
-	// Find and update the blocker inside the step
-	for i, s := range pd.Steps {
+	// Find the blocker in the step
+	for _, s := range pd.Steps {
 		if s.ID == stepSlug {
-			for j, b := range s.Blockers {
+			for _, b := range s.Blockers {
 				if b.ID == blockerID {
-					pd.Steps[i].Blockers[j] = b
-					pd.Steps[i].Blockers[j].Status = types.BlockerResolved
+					b.Status = types.BlockerResolved
+					if err := st.SaveBlocker(b); err != nil {
+						return fmt.Errorf("save blocker: %w", err)
+					}
 
-					// If no more active blockers, step goes back to todo
+					// If no more active blockers in the step, unblock it
 					stillBlocked := false
-					for _, remaining := range pd.Steps[i].Blockers {
-						if remaining.Status == types.BlockerWaiting || remaining.Status == types.BlockerActive {
-							stillBlocked = true
+					for _, remaining := range pd.Steps {
+						if remaining.ID == stepSlug {
+							for _, rb := range remaining.Blockers {
+								if rb.ID != blockerID && (rb.Status == types.BlockerWaiting || rb.Status == types.BlockerActive) {
+									stillBlocked = true
+									break
+								}
+							}
 							break
 						}
 					}
 					if !stillBlocked {
-						pd.Steps[i].Status = types.StepTodo
+						// Reload step and set to todo (SaveBlocker set it to blocked)
+						steps, _ := st.GetSteps(pd.Project.ID)
+						for i, step := range steps {
+							if step.ID == stepSlug {
+								steps[i].Status = types.StepTodo
+								st.SaveStep(steps[i])
+								break
+							}
+						}
 					}
 
-					if err := st.SaveStep(pd.Steps[i]); err != nil {
-						return fmt.Errorf("save step: %w", err)
-					}
 					pd.Project.UpdatedAt = types.NowISO()
 					st.SaveProject(pd.Project)
 
@@ -184,7 +194,7 @@ func cmdBlockerList(args []string) error {
 				fmt.Println(strings.Repeat("-", 60))
 				hasBlockers = true
 			}
-			fmt.Printf("  Step %q:\n", s.Title)
+			fmt.Printf("  Step %q (slug: %s):\n", s.Title, s.ID)
 			for _, b := range s.Blockers {
 				fmt.Printf("    [%-8s] %s  (%s)\n", b.Status, b.Title, b.ID)
 				if b.Reason != "" {

@@ -72,6 +72,7 @@ func cmdProjectCreate(args []string) error {
 	fmt.Printf("  pm project goal %d \"...\"    # add a goal\n", number)
 	fmt.Printf("  pm project tag %d ...        # add tags\n", number)
 	fmt.Printf("  pm project show %d           # view details\n", number)
+	fmt.Printf("  pm add step %d \"...\"        # add first step\n", number)
 	return nil
 }
 
