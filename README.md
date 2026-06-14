@@ -1,158 +1,187 @@
-# pm — Project Memory
+# PM — Project Memory
 
-Система долговременной памяти проектов для человека и ИИ.
+Долговременная память проектов для человека и ИИ.
 
-Хранит не список задач, а **текущее состояние проектов, принятые решения, блокеры, историю изменений и следующие шаги**.
+Хранит состояние проектов, шаги, блокеры, архитектурные решения — в YAML-файлах под Git. CLI для человека + MCP для агентов.
 
-Главная цель — сократить время восстановления контекста проекта с десятков минут до менее чем 30 секунд.
+---
 
 ## Концепция
 
-Информация о проектах распределена между Git-репозиториями, Obsidian, чатами с ИИ и памятью человека.
-PM становится единым источником истины о состоянии проекта.
+PM решает проблему восстановления контекста: вместо того чтобы перечитывать чаты, Obsidian и git-логи, открываешь `pm briefing` — и за 30 секунд понимаешь, что происходит с проектами, что изменилось, что блокирует, что делать today.
+
+## Архитектура
+
+```
+cmd/              # entry points
+├── pm/           # CLI (человек)
+└── pm-mcp/       # MCP-сервер (агенты, поверх stdio)
+internal/
+├── cli/          # CLI-хендлеры
+├── mcp/          # JSON-RPC 2.0, Content-Length framing
+├── domain/       # бизнес-логика (шаговая машина)
+├── store/        # FileStore + MockStore + interface
+├── slug/         # slug-генератор
+├── types/        # модели данных
+└── briefing/     # движок ежедневных сводок
+```
 
 ## Установка
 
-```bash
-go install github.com/xvantz/pm/cmd/pm@latest
+### Nix Flake
+
+```nix
+# flake.nix
+{
+  inputs.pm.url = "github:xvantz/pm";
+
+  outputs = { pm, ... }: {
+    nixosConfigurations.nixos = nixpkgs.lib.nixosSystem {
+      modules = [
+        pm.nixosModules.default
+        { services.pm.enable = true; }
+      ];
+    };
+  };
+}
 ```
 
-Или собери из исходников:
+Билд:
 
 ```bash
-git clone <url>
-cd pm
-go build -o pm ./cmd/pm
-sudo mv pm /usr/local/bin/
+nix build github:xvantz/pm
+# или
+nix run github:xvantz/pm#pm -- project list
+```
+
+### Go (dev)
+
+```bash
+git clone https://git.827482.xyz/xvantz/pm ~/Documents/pm
+cd ~/Documents/pm
+go build -o ~/.local/bin/pm ./cmd/pm
+go build -o ~/.local/bin/pm-mcp ./cmd/pm-mcp
 ```
 
 ## Использование
 
-### Инициализация
-
 ```bash
-cd ~/projects
-pm init
+export PM_DIR=~/Documents/pm/projects
+
+pm init                                          # инициализировать хранилище
+pm project create "AdGuard Home"                 # создать проект
+pm add step #1 "Настроить Caddy"                 # добавить шаг
+pm step start #1 setup-caddy                    # начать шаг
+pm step review #1 setup-caddy                   # отправить на ревью
+pm step done #1 setup-caddy                     # завершить (только из review)
+pm blocker add --reason "нет бюджета" #1 setup-caddy "Купить роутер"
+pm blocker resolve #1 setup-caddy router         # снять блокер
+pm decision add --reason "один бинарник" #1 "Go как язык"
+pm doctor                                        # проверка целостности
+pm trash list                                    # проекты в корзине
+pm trash restore <name>                          # восстановить
+pm briefing                                      # ежедневная сводка
 ```
 
-Создаёт `./pm/` с git-репозиторием и структурой `projects/`. Внутри:
+### MCP (для агентов)
 
+PM-mcp — JSON-RPC 2.0 сервер поверх stdio с Content-Length фреймингом. 14 инструментов:
+
+| Инструмент | Описание |
+|-----------|----------|
+| `list_projects` | список проектов (JSON) |
+| `get_project` | проект + шаги + решения (JSON) |
+| `add_project` | создать проект |
+| `add_step` | добавить шаг |
+| `start_step` | todo → in_progress |
+| `review_step` | отправить на ревью |
+| `done_step` | завершить (только из review) |
+| `add_blocker` | добавить блокер |
+| `resolve_blocker` | снять блокер |
+| `add_decision` | записать решение |
+| `get_briefing` | сгенерировать сводку |
+| `list_steps` | шаги проекта (JSON) |
+| `list_blockers` | блокеры (JSON) |
+| `list_decisions` | решения (JSON) |
+
+### Интеграция с Hermes Agent
+
+```nix
+# hermes.nix
+{ config, ... }: {
+  services.hermes-agent.mcpServers.pm = {
+    command = "${config.services.pm.package}/bin/pm-mcp";
+    env.PM_DIR = config.services.pm.dataDir;
+  };
+}
 ```
-pm/
-├── .git/
-├── .gitignore
-└── projects/     ← здесь живут YAML-файлы проектов
-```
 
-### Брифинг
+После `nixos-rebuild` все 14 инструментов доступны с префиксом `mcp_pm_`.
 
-```bash
-cd ~/projects
-pm briefing              # брифинг из ./pm/projects/
-pm briefing --mock       # тестовый брифинг с демо-данными (везде, без --dir)
-pm briefing --json       # вывод в JSON для LLM-агента
-pm briefing --date 2026-06-13  # брифинг на конкретную дату
-pm briefing --dir /path/to/projects  # кастомный путь
-```
-
-### Структура проектов
-
-```
-~/Documents/pm/projects/
-├── agh/
-│   ├── project.yaml       # метаданные проекта
-│   ├── steps/             # шаги (каждый — отдельный .yaml)
-│   ├── blockers/          # блокеры
-│   └── decisions/         # принятые решения
-├── pm/
-└── ...
-```
-
-## Формат данных
-
-### Project
+## Модель данных
 
 ```yaml
-id: agh
-title: AdGuard Home
-goal: "Развернуть домашний DNS сервер"
-status: active
-tags:
-  - infrastructure
-  - homelab
+# <project-id>/project.yaml
+id: "0196f1a2-..."
+number: 1
+title: "AdGuard Home"
+goal: "Развернуть DNS-сервер"
+status: active          # idea | active | paused | completed
+tags: ["infrastructure"]
 created_at: "2026-06-10"
 updated_at: "2026-06-14"
-completed_at:              # только если status: completed
 ```
 
-### Step
-
 ```yaml
+# <project-id>/steps/<slug>.yaml
 id: setup-caddy
-title: "Настроить Caddy reverse proxy"
-status: done               # todo | in_progress | review | done | blocked
-project_id: agh
-artifacts:
-  - docs/caddy-setup.md    # ссылки на PR, коммиты, файлы
-deps:                      # опционально
-  - install-agh
+title: "Настроить Caddy"
+status: done            # todo | in_progress | review | done | blocked
+project_id: "0196f1a2-..."
+blockers: []
+created_at: "2026-06-13"
+updated_at: "2026-06-13"
 ```
 
-### Blocker
-
 ```yaml
-id: router
-title: "Купить GL.iNet роутер"
-reason: "Нет свободного бюджета"
-status: waiting
-project_id: agh
+# blockers живут внутри step.yaml:
+blockers:
+  - id: router
+    title: "Купить роутер"
+    reason: "Нет бюджета"
+    status: waiting      # waiting | active | resolved
+    project_id: "..."
+    step_id: "configure-dns"
+    created_at: "2026-06-10"
+    updated_at: "2026-06-10"
 ```
 
-### Decision
-
 ```yaml
-id: migrate-docker
-title: "Отказ от Docker в пользу NixOS Service"
-reason: "NixOS Service проще сопровождать"
+# <project-id>/decisions/<slug>.yaml
+id: use-go
+title: "Go как язык"
+reason: "Один бинарник, без зависимостей"
 date: "2026-06-13"
-project_id: agh
+project_id: "..."
 ```
 
-## Тестирование
+## Надёжность
+
+| Свойство | Механизм |
+|----------|----------|
+| Атомарность записи | temp → sync → rename |
+| Durability | fsync файла + родительской директории |
+| Cross-process locking | flock на `.pm.lock` |
+| Graceful shutdown | signal.NotifyContext |
+| Recovery | корзина (.trash), NextNumber fallback scan |
+| Диагностика | `pm doctor` проверяет целостность |
+
+## Тесты
 
 ```bash
-go test ./...
+go test ./... -count=1   # 112+ тестов, 7 пакетов
+go vet ./...
 ```
-
-Или с детальным выводом:
-
-```bash
-go test -v ./...
-```
-
-Тесты покрывают:
-- генерацию брифинга (базовая, сводка, Markdown, JSON, блокеры, даты, пустое хранилище, приоритеты рекомендаций)
-- store (мок: CRUD, поиск; файловый: создание/чтение/запись проектов, шагов, блокеров, пустая директория)
-- типы (статусы, артефакты, теги, композиция ProjectData)
-
-## Команды
-
-- `pm briefing` — ✅
-- `pm init` — ✅
-- `pm project create <title>` — ✅ авто-ID из названия, статус `idea`
-- `pm project list` — ✅
-- `pm project show <id>` — ✅ шаги, блокеры, решения
-- `pm project goal <id> <text>` — ✅
-- `pm project tag <id> <tag>...` — ✅
-- `pm step add <id> <title>` — ✅ ID из названия (slug)
-- `pm step done <id> <step-id>` — ✅
-- `pm step list <id>` — ✅
-- `pm blocker add <id> <title>` — ✅
-- `pm blocker resolve <id> <blocker>` — ✅
-- `pm blocker list <id>` — ✅
-- `pm decision add <id> <title>` — ✅
-- `pm decision list <id>` — ✅
-- MCP-обёртка — пул-реквестом после стабилизации CLI
 
 ## Лицензия
 
