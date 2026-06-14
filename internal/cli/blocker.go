@@ -119,13 +119,13 @@ func cmdBlockerResolve(args []string) error {
 		return fmt.Errorf("project %q not found", ref)
 	}
 
-	// Find the blocker in the step
+	// Find the blocker in the step using index (avoid range-copy confusion)
 	for _, s := range pd.Steps {
 		if s.ID == stepSlug {
-			for _, b := range s.Blockers {
-				if b.ID == blockerID {
-					b.Status = types.BlockerResolved
-					if err := st.SaveBlocker(b); err != nil {
+			for j := range s.Blockers {
+				if s.Blockers[j].ID == blockerID {
+					s.Blockers[j].Status = types.BlockerResolved
+					if err := st.SaveBlocker(s.Blockers[j]); err != nil {
 						return fmt.Errorf("save blocker: %w", err)
 					}
 

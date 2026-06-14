@@ -140,6 +140,23 @@ func (s *MockStore) SaveBlocker(b types.Blocker) error {
 }
 
 func (s *MockStore) SaveDecision(d types.Decision) error {
+	for _, pd := range s.projects {
+		if pd.Project.ID != d.ProjectID {
+			continue
+		}
+		found := false
+		for i, existing := range pd.Decisions {
+			if existing.ID == d.ID {
+				pd.Decisions[i] = d
+				found = true
+				break
+			}
+		}
+		if !found {
+			pd.Decisions = append(pd.Decisions, d)
+		}
+		return nil
+	}
 	return nil
 }
 
