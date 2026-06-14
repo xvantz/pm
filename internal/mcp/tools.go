@@ -267,10 +267,13 @@ func handleListProjects(st store.Store, ctx context.Context, args json.RawMessag
 		})
 	}
 
-	data, _ := json.Marshal(map[string]any{
+	data, err := json.Marshal(map[string]any{
 		"count":    len(items),
 		"projects": items,
 	})
+	if err != nil {
+		return "", fmt.Errorf("marshal response: %w", err)
+	}
 	return string(data), nil
 }
 
@@ -287,7 +290,10 @@ func handleGetProject(st store.Store, ctx context.Context, args json.RawMessage)
 		return "", err
 	}
 
-	data, _ := json.Marshal(pd)
+	data, err := json.Marshal(pd)
+	if err != nil {
+		return "", fmt.Errorf("marshal response: %w", err)
+	}
 	return string(data), nil
 }
 
@@ -731,11 +737,14 @@ func handleListSteps(st store.Store, ctx context.Context, args json.RawMessage) 
 		})
 	}
 
-	data, _ := json.Marshal(map[string]any{
+	data, err := json.Marshal(map[string]any{
 		"project_number": pd.Project.Number,
 		"project_title":  pd.Project.Title,
 		"steps":          steps,
 	})
+	if err != nil {
+		return "", fmt.Errorf("marshal response: %w", err)
+	}
 	return string(data), nil
 }
 
@@ -752,7 +761,7 @@ func handleListBlockers(st store.Store, ctx context.Context, args json.RawMessag
 		return "", err
 	}
 
-	var groups []jsonBlockerGroup
+	groups := make([]jsonBlockerGroup, 0)
 	for _, s := range pd.Steps {
 		if len(s.Blockers) > 0 {
 			blockers := make([]jsonBlockerItem, 0, len(s.Blockers))
@@ -772,11 +781,14 @@ func handleListBlockers(st store.Store, ctx context.Context, args json.RawMessag
 		}
 	}
 
-	data, _ := json.Marshal(map[string]any{
+	data, err := json.Marshal(map[string]any{
 		"project_number": pd.Project.Number,
 		"project_title":  pd.Project.Title,
 		"blockers":       groups,
 	})
+	if err != nil {
+		return "", fmt.Errorf("marshal response: %w", err)
+	}
 	return string(data), nil
 }
 
@@ -804,10 +816,13 @@ func handleListDecisions(st store.Store, ctx context.Context, args json.RawMessa
 		})
 	}
 
-	data, _ := json.Marshal(map[string]any{
+	data, err := json.Marshal(map[string]any{
 		"project_number": pd.Project.Number,
 		"project_title":  pd.Project.Title,
 		"decisions":      items,
 	})
+	if err != nil {
+		return "", fmt.Errorf("marshal response: %w", err)
+	}
 	return string(data), nil
 }

@@ -597,7 +597,7 @@ func TestHandleListBlockers_None(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleListBlockers(no blockers) error: %v", err)
 	}
-	if !strings.Contains(result, "\"blockers\":null") {
+	if !strings.Contains(result, "\"blockers\":[]") {
 		t.Errorf("result mismatch: %s", result)
 	}
 }
