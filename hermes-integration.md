@@ -1,51 +1,64 @@
 # Интеграция PM с Hermes Agent
 
-## 1. MCP сервер
+## Подключение флейка
 
-Добавить в `/data/.hermes/config.yaml` (в секцию `mcp_servers`):
+В корневом `flake.nix` (dotfiles):
 
-```yaml
-  pm:
-    command: /projects/pm/pm-mcp
-    args: []
-    env:
-      PM_DIR: /projects/pm/pm/projects
-    enabled: true
+```nix
+{
+  inputs = {
+    # ... остальные inputs ...
+
+    pm = {
+      url = "github:xvantz/pm";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs = { nixpkgs, pm, ... } @ inputs: {
+    nixosConfigurations.nixos = nixpkgs.lib.nixosSystem {
+      modules = [
+        # ... остальные модули ...
+
+        pm.nixosModules.default
+        {
+          services.pm = {
+            enable = true;
+            dataDir = "/home/xvantz/Documents/pm";  # по умолчанию
+          };
+        }
+      ];
+    };
+  };
+}
 ```
 
-После чего перезапустить Hermes:
+## Настройка MCP сервера в Hermes
+
+В `hermes.nix` (или `modules/system/hermes.nix`):
+
+```nix
+{ config, ... }: {
+  services.hermes-agent = {
+    # ... остальные настройки ...
+
+    mcpServers.pm = {
+      command = "${config.services.pm.package}/bin/pm-mcp";
+      env.PM_DIR = config.services.pm.dataDir;
+    };
+  };
+}
+```
+
+После `nixos-rebuild switch`:
 
 ```bash
 sudo systemctl restart hermes-agent
 ```
 
-После перезапуска в Hermes появятся инструменты с префиксом `mcp_pm_`:
-- `mcp_pm_list_projects`
-- `mcp_pm_get_project`
-- `mcp_pm_add_project`
-- `mcp_pm_add_step`
-- `mcp_pm_start_step`
-- `mcp_pm_review_step`
-- `mcp_pm_done_step`
-- `mcp_pm_add_blocker`
-- `mcp_pm_resolve_blocker`
-- `mcp_pm_add_decision`
-- `mcp_pm_get_briefing`
-- `mcp_pm_list_steps`
-- `mcp_pm_list_blockers`
-- `mcp_pm_list_decisions`
-
-## 2. NixOS модуль
-
-Если Hermes управляется через NixOS, добавить в `services.hermes-agent.mcpServers`:
-
-```nix
-services.hermes-agent = {
-  mcpServers.pm = {
-    command = "${pkgs.pm}/bin/pm-mcp";
-    env.PM_DIR = "/home/xvantz/pm/projects";
-  };
-};
-```
-
-Где `pkgs.pm` — пакет из flake.nix этого проекта.
+В Hermes появятся инструменты с префиксом `mcp_pm_` (14 шт.):
+- `list_projects`, `get_project`, `add_project`
+- `add_step`, `start_step`, `review_step`, `done_step`
+- `add_blocker`, `resolve_blocker`
+- `add_decision`, `get_briefing`
+- `list_steps`, `list_blockers`, `list_decisions`
