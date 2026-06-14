@@ -537,6 +537,7 @@ func handleAddBlocker(st store.Store, args json.RawMessage) (string, error) {
 		ProjectID: pd.Project.ID,
 		StepID:    params.StepID,
 		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
 	if err := st.SaveBlocker(blocker); err != nil {
