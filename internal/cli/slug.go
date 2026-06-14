@@ -17,9 +17,5 @@ func slug(title string) string {
 	re := regexp.MustCompile(`-{2,}`)
 	s = re.ReplaceAllString(s, "-")
 	s = strings.Trim(s, "-")
-	if len(s) > 50 {
-		s = s[:50]
-		s = strings.TrimRight(s, "-")
-	}
 	return s
 }

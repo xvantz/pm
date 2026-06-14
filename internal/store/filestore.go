@@ -87,12 +87,29 @@ func (s *FileStore) ResolveProject(ref string) (*types.ProjectData, error) {
 		return nil, fmt.Errorf("project #%d not found", n)
 	}
 
-	// Try as full UUID — direct access, no scan
-	pd, err := s.GetProject(ref)
+	// Try as exact UUID first (fast path)
+	if pd, err := s.GetProject(ref); err == nil {
+		return pd, nil
+	}
+
+	// Try as UUID prefix (scan required)
+	projects, err := s.ListProjects()
 	if err != nil {
+		return nil, err
+	}
+	var matches []types.Project
+	for _, p := range projects {
+		if len(p.ID) >= len(ref) && p.ID[:len(ref)] == ref {
+			matches = append(matches, p)
+		}
+	}
+	if len(matches) == 0 {
 		return nil, fmt.Errorf("project %q not found", ref)
 	}
-	return pd, nil
+	if len(matches) > 1 {
+		return nil, fmt.Errorf("ambiguous project prefix %q matches %d projects", ref, len(matches))
+	}
+	return s.GetProject(matches[0].ID)
 }
 
 func (s *FileStore) NextNumber() (int, error) {

@@ -89,8 +89,11 @@ func Generate(cfg Config) (*Briefing, error) {
 	// Single-project filter
 	if cfg.FilterProject != "" {
 		pd, err := cfg.Store.ResolveProject(cfg.FilterProject)
-		if err != nil || pd == nil {
-			return nil, fmt.Errorf("project not found: %s", cfg.FilterProject)
+		if err != nil {
+			return nil, err
+		}
+		if pd == nil {
+			return nil, fmt.Errorf("project %s not found", cfg.FilterProject)
 		}
 		projects = []types.Project{pd.Project}
 	}

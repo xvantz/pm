@@ -68,26 +68,31 @@ func TestSlug_Empty(t *testing.T) {
 	}
 }
 
-func TestSlug_TruncateAt50(t *testing.T) {
+func TestSlug_UnlimitedLength(t *testing.T) {
 	long := "abcdefghij-abcdefghij-abcdefghij-abcdefghij-abcdefghij-xxx"
 	s := slug(long)
-	if len(s) > 50 {
-		t.Errorf("slug length = %d, want <= 50", len(s))
+	// Should be full length, no truncation
+	if len(s) <= 50 {
+		t.Errorf("slug length = %d, want > 50 (no truncation)", len(s))
 	}
-	if s != "abcdefghij-abcdefghij-abcdefghij-abcdefghij-abcdef" {
-		t.Errorf("slug() = %q, want %q", s, "abcdefghij-abcdefghij-abcdefghij-abcdefghij-abcdef")
+	if s != "abcdefghij-abcdefghij-abcdefghij-abcdefghij-abcdefghij-xxx" {
+		t.Errorf("slug() = %q, want full string", s)
 	}
 }
 
-func TestSlug_TwoDifferentAfter50(t *testing.T) {
-	// Known limitation: titles differing after ~50 chars collide on truncation
-	// This test documents the current behavior.
+func TestSlug_NoCollisionOnLongTitles(t *testing.T) {
 	a := "abcde-abcde-abcde-abcde-abcde-abcde-abcde-abcde-abcde-abcde-AAAA"
 	b := "abcde-abcde-abcde-abcde-abcde-abcde-abcde-abcde-abcde-abcde-BBBB"
 	sa := slug(a)
 	sb := slug(b)
-	if sa != sb {
-		t.Errorf("expected collision due to 50-char truncation, but slugs differ: %q vs %q", sa, sb)
+	if sa == sb {
+		t.Errorf("slugs should differ: both are %q", sa)
+	}
+	if sa != "abcde-abcde-abcde-abcde-abcde-abcde-abcde-abcde-abcde-abcde-aaaa" {
+		t.Errorf("slug(A) = %q, want lowercase-aaaa-suffix", sa)
+	}
+	if sb != "abcde-abcde-abcde-abcde-abcde-abcde-abcde-abcde-abcde-abcde-bbbb" {
+		t.Errorf("slug(B) = %q, want lowercase-bbbb-suffix", sb)
 	}
 }
 

@@ -43,7 +43,26 @@ func (s *MockStore) ResolveProject(ref string) (*types.ProjectData, error) {
 		}
 		return nil, fmt.Errorf("project #%d not found", n)
 	}
-	return s.GetProject(ref)
+
+	// Try as exact UUID first
+	if pd, ok := s.projects[ref]; ok {
+		return pd, nil
+	}
+
+	// Try as UUID prefix
+	var matches []*types.ProjectData
+	for _, pd := range s.projects {
+		if len(pd.Project.ID) >= len(ref) && pd.Project.ID[:len(ref)] == ref {
+			matches = append(matches, pd)
+		}
+	}
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("project %q not found", ref)
+	}
+	if len(matches) > 1 {
+		return nil, fmt.Errorf("ambiguous project prefix %q matches %d projects", ref, len(matches))
+	}
+	return matches[0], nil
 }
 
 func (s *MockStore) NextNumber() (int, error) {
