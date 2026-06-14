@@ -44,6 +44,7 @@ func (s *FileStore) ListProjects() ([]types.Project, error) {
 		}
 		p, err := s.readProject(e.Name())
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: cannot read project %q: %v\n", e.Name(), err)
 			continue
 		}
 		projects = append(projects, *p)
@@ -186,8 +187,10 @@ func (s *FileStore) SaveBlocker(b types.Blocker) error {
 			if !found {
 				steps[i].Blockers = append(steps[i].Blockers, b)
 			}
-			// Adding/updating a blocker marks the step as blocked
-			steps[i].Status = types.StepBlocked
+			// Adding/updating a blocker marks the step as blocked (unless resolved)
+			if b.Status != types.BlockerResolved {
+				steps[i].Status = types.StepBlocked
+			}
 			return s.SaveStep(steps[i])
 		}
 	}

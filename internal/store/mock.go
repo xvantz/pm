@@ -134,8 +134,10 @@ func (s *MockStore) SaveBlocker(b types.Blocker) error {
 				if !found {
 					pd.Steps[i].Blockers = append(pd.Steps[i].Blockers, b)
 				}
-				// Adding/updating a blocker marks the step as blocked
-				pd.Steps[i].Status = types.StepBlocked
+				// Adding/updating a blocker marks the step as blocked (unless resolved)
+				if b.Status != types.BlockerResolved {
+					pd.Steps[i].Status = types.StepBlocked
+				}
 				return nil
 			}
 		}
@@ -214,6 +216,16 @@ func (s *MockStore) DeleteBlocker(projectID, stepID, blockerID string) error {
 }
 
 func (s *MockStore) DeleteDecision(projectID, decisionID string) error {
+	pd, ok := s.projects[projectID]
+	if !ok {
+		return nil
+	}
+	for i, d := range pd.Decisions {
+		if d.ID == decisionID {
+			pd.Decisions = append(pd.Decisions[:i], pd.Decisions[i+1:]...)
+			return nil
+		}
+	}
 	return nil
 }
 
