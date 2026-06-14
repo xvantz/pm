@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/xvantz/pm/internal/domain"
 	"github.com/xvantz/pm/internal/types"
 )
 
@@ -225,15 +226,7 @@ func (s *MockStore) DeleteBlocker(projectID, stepID, blockerID string) error {
 			for j, b := range st.Blockers {
 				if b.ID == blockerID {
 					pd.Steps[i].Blockers = append(st.Blockers[:j], st.Blockers[j+1:]...)
-					// If no more blockers, step goes back to todo
-					stillBlocked := false
-					for _, remaining := range pd.Steps[i].Blockers {
-						if remaining.Status == types.BlockerWaiting || remaining.Status == types.BlockerActive {
-							stillBlocked = true
-							break
-						}
-					}
-					if !stillBlocked {
+					if !domain.HasUnresolvedBlockers(pd.Steps[i].Blockers) {
 						pd.Steps[i].Status = types.StepTodo
 					}
 					return nil

@@ -291,7 +291,11 @@ func (s *FileStore) DeleteStep(projectID, stepID string) error {
 	}
 	defer unlock()
 
-	return os.Remove(filepath.Join(s.stepsDir(projectID), stepID+".yaml"))
+	if err := os.Remove(filepath.Join(s.stepsDir(projectID), stepID+".yaml")); err != nil {
+		return err
+	}
+	s.touchProject(projectID)
+	return nil
 }
 
 func (s *FileStore) DeleteBlocker(projectID, stepID, blockerID string) error {
@@ -313,13 +317,37 @@ func (s *FileStore) DeleteBlocker(projectID, stepID, blockerID string) error {
 					if !domain.HasUnresolvedBlockers(steps[i].Blockers) {
 						steps[i].Status = types.StepTodo
 					}
-					return s.saveStep(steps[i])
+					if err := s.saveStep(steps[i]); err != nil {
+				return err
+			}
+			s.touchProject(projectID)
+			return nil
 				}
 			}
 			return fmt.Errorf("blocker %q not found in step %q", blockerID, stepID)
 		}
 	}
 	return fmt.Errorf("step %q not found", stepID)
+}
+
+// touchProject updates the project's UpdatedAt timestamp to now.
+// Must be called while the project lock is held. Errors are logged but not returned.
+func (s *FileStore) touchProject(projectID string) {
+	projectPath := filepath.Join(s.projectDir(projectID), "project.yaml")
+	data, err := os.ReadFile(projectPath)
+	if err != nil {
+		slog.Warn("touch project read", "project", projectID, "error", err)
+		return
+	}
+	var p types.Project
+	if err := yaml.Unmarshal(data, &p); err != nil {
+		slog.Warn("touch project parse", "project", projectID, "error", err)
+		return
+	}
+	p.UpdatedAt = types.NowISO()
+	if err := writeYAMLAtomic(projectPath, p); err != nil {
+		slog.Warn("touch project write", "project", projectID, "error", err)
+	}
 }
 
 func (s *FileStore) DeleteDecision(projectID, decisionID string) error {
@@ -329,7 +357,11 @@ func (s *FileStore) DeleteDecision(projectID, decisionID string) error {
 	}
 	defer unlock()
 
-	return os.Remove(filepath.Join(s.decisionsDir(projectID), decisionID+".yaml"))
+	if err := os.Remove(filepath.Join(s.decisionsDir(projectID), decisionID+".yaml")); err != nil {
+		return err
+	}
+	s.touchProject(projectID)
+	return nil
 }
 
 func (s *FileStore) TrashList() ([]string, error) {

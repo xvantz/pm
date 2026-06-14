@@ -2,6 +2,9 @@ package cli
 
 import (
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/xvantz/pm/internal/types"
 )
 
 func TestAdd_Dispatch(t *testing.T) {
@@ -180,4 +183,85 @@ func containsStr(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestDoctor_EmptyStore(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PM_DIR", dir)
+
+	// Create a minimal project
+	st, err := openStore()
+	if err != nil {
+		t.Fatalf("openStore() error = %v", err)
+	}
+	uid, _ := uuid.NewV7()
+	now := types.NowISO()
+	p := types.Project{ID: uid.String(), Number: 1, Title: "Test", Status: types.StatusActive, CreatedAt: now, UpdatedAt: now}
+	if err := st.SaveProject(p); err != nil {
+		t.Fatalf("SaveProject() error = %v", err)
+	}
+
+	// Run doctor
+	err = cmdDoctor(nil)
+	if err != nil {
+		t.Fatalf("cmdDoctor error = %v", err)
+	}
+}
+
+func TestTrash_ListEmpty(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PM_DIR", dir)
+
+	err := cmdTrashList(nil)
+	if err != nil {
+		t.Fatalf("cmdTrashList error = %v", err)
+	}
+}
+
+func TestTrash_RestoreClean(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PM_DIR", dir)
+
+	st, err := openStore()
+	if err != nil {
+		t.Fatalf("openStore() error = %v", err)
+	}
+
+	uid, _ := uuid.NewV7()
+	now := types.NowISO()
+	pid := uid.String()
+	p := types.Project{ID: pid, Number: 1, Title: "Trash Test", Status: types.StatusActive, CreatedAt: now, UpdatedAt: now}
+	if err := st.SaveProject(p); err != nil {
+		t.Fatalf("SaveProject() error = %v", err)
+	}
+
+	// Delete to trash
+	if err := st.DeleteProject(pid); err != nil {
+		t.Fatalf("DeleteProject() error = %v", err)
+	}
+
+	// List trash
+	items, err := st.TrashList()
+	if err != nil {
+		t.Fatalf("TrashList() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("TrashList returned %d items, want 1", len(items))
+	}
+
+	// Restore
+	if err := st.TrashRestore(items[0]); err != nil {
+		t.Fatalf("TrashRestore() error = %v", err)
+	}
+
+	// Verify project is back
+	_, err = st.GetProject(pid)
+	if err != nil {
+		t.Errorf("Project not found after restore: %v", err)
+	}
+
+	// Clean trash (should be empty after restore)
+	if err := st.TrashClean(); err != nil {
+		t.Fatalf("TrashClean() error = %v", err)
+	}
 }
