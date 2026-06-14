@@ -107,7 +107,12 @@ func Generate(cfg Config) (*Briefing, error) {
 	totalBlocked := 0
 	longBlockers := []BlockedItem{}
 
-	weekStart := parseDate(date).AddDate(0, 0, -7)
+	briefingDate := parseDate(date)
+	if briefingDate.IsZero() {
+		briefingDate = time.Now().UTC()
+	}
+
+	weekStart := briefingDate.AddDate(0, 0, -7)
 
 	for _, p := range projects {
 		pd, _ := cfg.Store.GetProject(p.ID)
@@ -135,7 +140,7 @@ func Generate(cfg Config) (*Briefing, error) {
 
 				for _, bl := range collectBlockers(pd.Steps) {
 					if bl.Status == types.BlockerActive || bl.Status == types.BlockerWaiting {
-						days := blockerDaysAlive(bl)
+						days := blockerDaysAlive(bl, briefingDate)
 						if days > 7 {
 							longBlockers = append(longBlockers, BlockedItem{
 								ProjectID: p.ID, ProjectTitle: p.Title,
@@ -301,7 +306,7 @@ func countActiveBlockers(steps []types.Step) int {
 	return count
 }
 
-func blockerDaysAlive(b types.Blocker) int {
+func blockerDaysAlive(b types.Blocker, now time.Time) int {
 	if b.CreatedAt == "" {
 		return 0
 	}
@@ -309,7 +314,7 @@ func blockerDaysAlive(b types.Blocker) int {
 	if created.IsZero() {
 		return 0
 	}
-	days := int(time.Since(created).Hours() / 24)
+	days := int(now.Sub(created).Hours() / 24)
 	if days < 0 {
 		return 0
 	}

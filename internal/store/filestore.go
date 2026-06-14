@@ -257,12 +257,15 @@ func readYAMLDir[T any](dir string) ([]T, error) {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".yaml" {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		fp := filepath.Join(dir, e.Name())
+		data, err := os.ReadFile(fp)
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: cannot read %s: %v\n", fp, err)
 			continue
 		}
 		var item T
 		if err := yaml.Unmarshal(data, &item); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: cannot parse %s: %v\n", fp, err)
 			continue
 		}
 		items = append(items, item)

@@ -119,53 +119,56 @@ func cmdBlockerResolve(args []string) error {
 		return fmt.Errorf("project %q not found", ref)
 	}
 
-	// Find the blocker in the step using index (avoid range-copy confusion)
-	for _, s := range pd.Steps {
-		if s.ID == stepSlug {
-			for j := range s.Blockers {
-				if s.Blockers[j].ID == blockerID {
-					s.Blockers[j].Status = types.BlockerResolved
-					if err := st.SaveBlocker(s.Blockers[j]); err != nil {
-						return fmt.Errorf("save blocker: %w", err)
-					}
-
-					// If no more active blockers in the step, unblock it
-					stillBlocked := false
-					for _, remaining := range pd.Steps {
-						if remaining.ID == stepSlug {
-							for _, rb := range remaining.Blockers {
-								if rb.ID != blockerID && (rb.Status == types.BlockerWaiting || rb.Status == types.BlockerActive) {
-									stillBlocked = true
-									break
-								}
-							}
-							break
-						}
-					}
-					if !stillBlocked {
-						// Reload step and set to todo (SaveBlocker set it to blocked)
-						steps, _ := st.GetSteps(pd.Project.ID)
-						for i, step := range steps {
-							if step.ID == stepSlug {
-								steps[i].Status = types.StepTodo
-								st.SaveStep(steps[i])
-								break
-							}
-						}
-					}
-
-					pd.Project.UpdatedAt = types.NowISO()
-					st.SaveProject(pd.Project)
-
-					fmt.Printf("Blocker %q resolved in step %q (project #%d).\n", blockerID, stepSlug, pd.Project.Number)
-					return nil
+	// Find the blocker by index — avoid range-copy confusion
+	stepIdx := -1
+	blockerIdx := -1
+	for i := range pd.Steps {
+		if pd.Steps[i].ID == stepSlug {
+			stepIdx = i
+			for j := range pd.Steps[i].Blockers {
+				if pd.Steps[i].Blockers[j].ID == blockerID {
+					blockerIdx = j
+					break
 				}
 			}
-			return fmt.Errorf("blocker %q not found in step %q", blockerID, stepSlug)
+			break
 		}
 	}
 
-	return fmt.Errorf("step %q not found in project #%d", stepSlug, pd.Project.Number)
+	if stepIdx == -1 {
+		return fmt.Errorf("step %q not found in project #%d", stepSlug, pd.Project.Number)
+	}
+	if blockerIdx == -1 {
+		return fmt.Errorf("blocker %q not found in step %q", blockerID, stepSlug)
+	}
+
+	// Resolve the blocker in-place (updates pd.Steps so subsequent checks are correct)
+	pd.Steps[stepIdx].Blockers[blockerIdx].Status = types.BlockerResolved
+
+	if err := st.SaveBlocker(pd.Steps[stepIdx].Blockers[blockerIdx]); err != nil {
+		return fmt.Errorf("save blocker: %w", err)
+	}
+
+	// If no more active blockers in the step, unblock it
+	stillBlocked := false
+	for _, b := range pd.Steps[stepIdx].Blockers {
+		if b.Status == types.BlockerWaiting || b.Status == types.BlockerActive {
+			stillBlocked = true
+			break
+		}
+	}
+	if !stillBlocked {
+		pd.Steps[stepIdx].Status = types.StepTodo
+		if err := st.SaveStep(pd.Steps[stepIdx]); err != nil {
+			return fmt.Errorf("save step (unblock): %w", err)
+		}
+	}
+
+	pd.Project.UpdatedAt = types.NowISO()
+	st.SaveProject(pd.Project)
+
+	fmt.Printf("Blocker %q resolved in step %q (project #%d).\n", blockerID, stepSlug, pd.Project.Number)
+	return nil
 }
 
 func cmdBlockerList(args []string) error {

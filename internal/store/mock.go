@@ -89,7 +89,11 @@ func (s *MockStore) SaveProject(p types.Project) error {
 	if ok {
 		existing.Project = p
 	} else {
-		s.projects[p.ID] = &types.ProjectData{Project: p}
+		s.projects[p.ID] = &types.ProjectData{
+			Project:   p,
+			Steps:     []types.Step{},
+			Decisions: []types.Decision{},
+		}
 	}
 	return nil
 }
