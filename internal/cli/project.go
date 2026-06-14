@@ -116,9 +116,6 @@ func cmdProjectShow(args []string) error {
 	if err != nil {
 		return err
 	}
-	if pd == nil {
-		return fmt.Errorf("project %q not found", args[0])
-	}
 
 	p := pd.Project
 	fmt.Printf("#%d  %s\n", p.Number, p.Title)
@@ -222,9 +219,6 @@ func updateProject(ref string, fn func(p *types.Project)) error {
 	pd, err := st.ResolveProject(ref)
 	if err != nil {
 		return fmt.Errorf("resolve %q: %w", ref, err)
-	}
-	if pd == nil {
-		return fmt.Errorf("project %q not found", ref)
 	}
 
 	fn(&pd.Project)

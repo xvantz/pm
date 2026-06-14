@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/xvantz/pm/internal/types"
 )
@@ -40,9 +41,6 @@ func cmdDelProject(args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve %q: %w", args[0], err)
 	}
-	if pd == nil {
-		return fmt.Errorf("project %q not found", args[0])
-	}
 
 	if err := st.DeleteProject(pd.Project.ID); err != nil {
 		return fmt.Errorf("delete project: %w", err)
@@ -68,16 +66,15 @@ func cmdDelStep(args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve %q: %w", ref, err)
 	}
-	if pd == nil {
-		return fmt.Errorf("project %q not found", ref)
-	}
 
 	if err := st.DeleteStep(pd.Project.ID, stepID); err != nil {
 		return fmt.Errorf("delete step: %w", err)
 	}
 
 	pd.Project.UpdatedAt = types.NowISO()
-	st.SaveProject(pd.Project)
+	if err := st.SaveProject(pd.Project); err != nil {
+		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
+	}
 
 	fmt.Printf("Step %q deleted from project #%d.\n", stepID, pd.Project.Number)
 	return nil
@@ -99,16 +96,15 @@ func cmdDelBlocker(args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve %q: %w", ref, err)
 	}
-	if pd == nil {
-		return fmt.Errorf("project %q not found", ref)
-	}
 
 	if err := st.DeleteBlocker(pd.Project.ID, stepID, blockerID); err != nil {
 		return fmt.Errorf("delete blocker: %w", err)
 	}
 
 	pd.Project.UpdatedAt = types.NowISO()
-	st.SaveProject(pd.Project)
+	if err := st.SaveProject(pd.Project); err != nil {
+		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
+	}
 
 	fmt.Printf("Blocker %q deleted from step %q (project #%d).\n", blockerID, stepID, pd.Project.Number)
 	return nil
@@ -130,16 +126,15 @@ func cmdDelDecision(args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve %q: %w", ref, err)
 	}
-	if pd == nil {
-		return fmt.Errorf("project %q not found", ref)
-	}
 
 	if err := st.DeleteDecision(pd.Project.ID, decisionID); err != nil {
 		return fmt.Errorf("delete decision: %w", err)
 	}
 
 	pd.Project.UpdatedAt = types.NowISO()
-	st.SaveProject(pd.Project)
+	if err := st.SaveProject(pd.Project); err != nil {
+		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
+	}
 
 	fmt.Printf("Decision %q deleted from project #%d.\n", decisionID, pd.Project.Number)
 	return nil

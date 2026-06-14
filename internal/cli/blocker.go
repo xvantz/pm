@@ -3,6 +3,7 @@ package cli
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/xvantz/pm/internal/types"
@@ -47,9 +48,6 @@ func cmdBlockerAdd(args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve %q: %w", ref, err)
 	}
-	if pd == nil {
-		return fmt.Errorf("project %q not found", ref)
-	}
 
 	// Find the step
 	var targetStep *types.Step
@@ -92,7 +90,9 @@ func cmdBlockerAdd(args []string) error {
 	// SaveBlocker already set step status to StepBlocked and saved it
 
 	pd.Project.UpdatedAt = now
-	st.SaveProject(pd.Project)
+	if err := st.SaveProject(pd.Project); err != nil {
+		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
+	}
 
 	fmt.Printf("Blocker %q added to step %q in project #%d.\n", id, stepSlug, pd.Project.Number)
 	fmt.Printf("  pm blocker resolve %d %s %s\n", pd.Project.Number, stepSlug, id)
@@ -114,9 +114,6 @@ func cmdBlockerResolve(args []string) error {
 	pd, err := st.ResolveProject(ref)
 	if err != nil {
 		return fmt.Errorf("resolve %q: %w", ref, err)
-	}
-	if pd == nil {
-		return fmt.Errorf("project %q not found", ref)
 	}
 
 	// Find the blocker by index — avoid range-copy confusion
@@ -166,7 +163,9 @@ func cmdBlockerResolve(args []string) error {
 	}
 
 	pd.Project.UpdatedAt = types.NowISO()
-	st.SaveProject(pd.Project)
+	if err := st.SaveProject(pd.Project); err != nil {
+		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
+	}
 
 	fmt.Printf("Blocker %q resolved in step %q (project #%d).\n", blockerID, stepSlug, pd.Project.Number)
 	return nil
@@ -185,9 +184,6 @@ func cmdBlockerList(args []string) error {
 	pd, err := st.ResolveProject(args[0])
 	if err != nil {
 		return fmt.Errorf("resolve %q: %w", args[0], err)
-	}
-	if pd == nil {
-		return fmt.Errorf("project %q not found", args[0])
 	}
 
 	hasBlockers := false

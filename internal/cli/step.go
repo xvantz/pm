@@ -1,7 +1,7 @@
 package cli
-
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/xvantz/pm/internal/types"
@@ -45,9 +45,6 @@ func cmdStepAdd(args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve %q: %w", ref, err)
 	}
-	if pd == nil {
-		return fmt.Errorf("project %q not found", ref)
-	}
 
 	id := slug(title)
 	if id == "" {
@@ -71,7 +68,9 @@ func cmdStepAdd(args []string) error {
 	}
 
 	pd.Project.UpdatedAt = now
-	st.SaveProject(pd.Project)
+	if err := st.SaveProject(pd.Project); err != nil {
+		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
+	}
 
 	fmt.Printf("Step %q added to project #%d.\n", id, pd.Project.Number)
 	fmt.Printf("  pm step start %d %s       # mark as in_progress\n", pd.Project.Number, id)
@@ -96,9 +95,6 @@ func cmdStepStart(args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve %q: %w", ref, err)
 	}
-	if pd == nil {
-		return fmt.Errorf("project %q not found", ref)
-	}
 
 	for i, s := range pd.Steps {
 		if s.ID == stepID {
@@ -114,7 +110,9 @@ func cmdStepStart(args []string) error {
 			}
 
 			pd.Project.UpdatedAt = types.NowISO()
-			st.SaveProject(pd.Project)
+			if err := st.SaveProject(pd.Project); err != nil {
+				slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
+			}
 
 			fmt.Printf("Step %q started (in_progress) in project #%d.\n", stepID, pd.Project.Number)
 			return nil
@@ -140,9 +138,6 @@ func cmdStepReview(args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve %q: %w", ref, err)
 	}
-	if pd == nil {
-		return fmt.Errorf("project %q not found", ref)
-	}
 
 	for i, s := range pd.Steps {
 		if s.ID == stepID {
@@ -158,7 +153,9 @@ func cmdStepReview(args []string) error {
 			}
 
 			pd.Project.UpdatedAt = types.NowISO()
-			st.SaveProject(pd.Project)
+			if err := st.SaveProject(pd.Project); err != nil {
+				slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
+			}
 
 			fmt.Printf("Step %q sent to review in project #%d.\n", stepID, pd.Project.Number)
 			return nil
@@ -184,9 +181,6 @@ func cmdStepDone(args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve %q: %w", ref, err)
 	}
-	if pd == nil {
-		return fmt.Errorf("project %q not found", ref)
-	}
 
 	for i, s := range pd.Steps {
 		if s.ID == stepID {
@@ -210,7 +204,9 @@ func cmdStepDone(args []string) error {
 			}
 
 			pd.Project.UpdatedAt = types.NowISO()
-			st.SaveProject(pd.Project)
+			if err := st.SaveProject(pd.Project); err != nil {
+				slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
+			}
 
 			fmt.Printf("Step %q marked done in project #%d.\n", stepID, pd.Project.Number)
 			return nil
@@ -233,9 +229,6 @@ func cmdStepList(args []string) error {
 	pd, err := st.ResolveProject(args[0])
 	if err != nil {
 		return fmt.Errorf("resolve %q: %w", args[0], err)
-	}
-	if pd == nil {
-		return fmt.Errorf("project %q not found", args[0])
 	}
 
 	if len(pd.Steps) == 0 {

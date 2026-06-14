@@ -3,6 +3,7 @@ package cli
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/xvantz/pm/internal/types"
@@ -45,9 +46,6 @@ func cmdDecisionAdd(args []string) error {
 	if err != nil {
 		return fmt.Errorf("resolve %q: %w", ref, err)
 	}
-	if pd == nil {
-		return fmt.Errorf("project %q not found", ref)
-	}
 
 	id := slug(title)
 	if id == "" {
@@ -73,7 +71,9 @@ func cmdDecisionAdd(args []string) error {
 	}
 
 	pd.Project.UpdatedAt = now
-	st.SaveProject(pd.Project)
+	if err := st.SaveProject(pd.Project); err != nil {
+		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
+	}
 
 	fmt.Printf("Decision %q recorded in project #%d.\n", id, pd.Project.Number)
 	fmt.Printf("  pm decision list %d\n", pd.Project.Number)
@@ -93,9 +93,6 @@ func cmdDecisionList(args []string) error {
 	pd, err := st.ResolveProject(args[0])
 	if err != nil {
 		return fmt.Errorf("resolve %q: %w", args[0], err)
-	}
-	if pd == nil {
-		return fmt.Errorf("project %q not found", args[0])
 	}
 
 	decisions, err := st.GetDecisions(pd.Project.ID)
