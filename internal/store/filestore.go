@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -44,7 +45,7 @@ func (s *FileStore) ListProjects() ([]types.Project, error) {
 		}
 		p, err := s.readProject(e.Name())
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: cannot read project %q: %v\n", e.Name(), err)
+			slog.Warn("skipping unreadable project", "dir", e.Name(), "error", err)
 			continue
 		}
 		projects = append(projects, *p)
@@ -274,12 +275,12 @@ func readYAMLDir[T any](dir string) ([]T, error) {
 		fp := filepath.Join(dir, e.Name())
 		data, err := os.ReadFile(fp)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: cannot read %s: %v\n", fp, err)
+			slog.Warn("cannot read YAML file", "path", fp, "error", err)
 			continue
 		}
 		var item T
 		if err := yaml.Unmarshal(data, &item); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: cannot parse %s: %v\n", fp, err)
+			slog.Warn("cannot parse YAML file", "path", fp, "error", err)
 			continue
 		}
 		items = append(items, item)

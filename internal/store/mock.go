@@ -160,8 +160,9 @@ func (s *MockStore) SaveBlocker(b types.Blocker) error {
 				return nil
 			}
 		}
+		return fmt.Errorf("step %q not found in project %q", b.StepID, b.ProjectID)
 	}
-	return nil
+	return fmt.Errorf("project %q not found", b.ProjectID)
 }
 
 func (s *MockStore) SaveDecision(d types.Decision) error {
@@ -182,7 +183,7 @@ func (s *MockStore) SaveDecision(d types.Decision) error {
 		}
 		return nil
 	}
-	return nil
+	return fmt.Errorf("project %q not found", d.ProjectID)
 }
 
 func (s *MockStore) DeleteProject(id string) error {

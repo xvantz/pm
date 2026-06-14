@@ -3,6 +3,7 @@ package cli
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,11 +29,12 @@ func cmdInit(args []string) error {
 
 	gitInit := exec.Command("git", "init", pmDir)
 	if out, err := gitInit.CombinedOutput(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: git init failed (%v). You can init manually later.\n  %s\n", err, string(out))
+		slog.Warn("git init failed", "error", err, "output", string(out))
+		slog.Warn("you can git init the pm directory manually")
 	} else {
 		gitignore := "# PM ignores nothing by default — all data is meant to be tracked.\n# Add project-specific ignores below if needed.\n"
 		if err := os.WriteFile(filepath.Join(pmDir, ".gitignore"), []byte(gitignore), 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not create .gitignore: %v\n", err)
+			slog.Warn("could not create .gitignore", "error", err)
 		}
 	}
 
