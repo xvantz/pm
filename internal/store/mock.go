@@ -29,7 +29,7 @@ func (s *MockStore) ListProjects() ([]types.Project, error) {
 func (s *MockStore) GetProject(id string) (*types.ProjectData, error) {
 	pd, ok := s.projects[id]
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("project %q not found", id)
 	}
 	return pd, nil
 }
@@ -41,7 +41,7 @@ func (s *MockStore) ResolveProject(ref string) (*types.ProjectData, error) {
 				return pd, nil
 			}
 		}
-		return nil, nil
+		return nil, fmt.Errorf("project #%d not found", n)
 	}
 	return s.GetProject(ref)
 }
@@ -59,7 +59,7 @@ func (s *MockStore) NextNumber() (int, error) {
 func (s *MockStore) GetSteps(projectID string) ([]types.Step, error) {
 	pd, ok := s.projects[projectID]
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("project %q not found", projectID)
 	}
 	return pd.Steps, nil
 }
@@ -67,7 +67,7 @@ func (s *MockStore) GetSteps(projectID string) ([]types.Step, error) {
 func (s *MockStore) GetBlockers(projectID string) ([]types.Blocker, error) {
 	pd, ok := s.projects[projectID]
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("project %q not found", projectID)
 	}
 	var blockers []types.Blocker
 	for _, st := range pd.Steps {
@@ -79,7 +79,7 @@ func (s *MockStore) GetBlockers(projectID string) ([]types.Blocker, error) {
 func (s *MockStore) GetDecisions(projectID string) ([]types.Decision, error) {
 	pd, ok := s.projects[projectID]
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("project %q not found", projectID)
 	}
 	return pd.Decisions, nil
 }
@@ -101,7 +101,7 @@ func (s *MockStore) SaveProject(p types.Project) error {
 func (s *MockStore) SaveStep(st types.Step) error {
 	pd, ok := s.projects[st.ProjectID]
 	if !ok {
-		return nil
+		return fmt.Errorf("project %q not found", st.ProjectID)
 	}
 	for i, step := range pd.Steps {
 		if step.ID == st.ID {

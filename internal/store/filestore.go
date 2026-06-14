@@ -73,7 +73,7 @@ func (s *FileStore) GetProject(id string) (*types.ProjectData, error) {
 }
 
 func (s *FileStore) ResolveProject(ref string) (*types.ProjectData, error) {
-	// Try as number first
+	// Try as number first — requires scanning all projects
 	if n, err := strconv.Atoi(ref); err == nil {
 		projects, err := s.ListProjects()
 		if err != nil {
@@ -87,18 +87,12 @@ func (s *FileStore) ResolveProject(ref string) (*types.ProjectData, error) {
 		return nil, fmt.Errorf("project #%d not found", n)
 	}
 
-	// Try as UUID (partial or full)
-	projects, err := s.ListProjects()
+	// Try as full UUID — direct access, no scan
+	pd, err := s.GetProject(ref)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("project %q not found", ref)
 	}
-	for _, p := range projects {
-		if p.ID == ref {
-			return s.GetProject(p.ID)
-		}
-	}
-
-	return nil, fmt.Errorf("project %q not found", ref)
+	return pd, nil
 }
 
 func (s *FileStore) NextNumber() (int, error) {

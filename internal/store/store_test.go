@@ -98,8 +98,8 @@ func TestMockStore_ResolveProject(t *testing.T) {
 func TestMockStore_GetProject_NotFound(t *testing.T) {
 	s := NewMockStore()
 	pd, err := s.GetProject("nonexistent")
-	if err != nil {
-		t.Fatalf("GetProject() error = %v", err)
+	if err == nil {
+		t.Error("Expected error for nonexistent project, got nil")
 	}
 	if pd != nil {
 		t.Error("Expected nil for nonexistent project")
