@@ -5,10 +5,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/xvantz/pm/internal/mcp"
 	"github.com/xvantz/pm/internal/store"
@@ -28,8 +31,11 @@ func main() {
 	server := mcp.NewServer("pm-mcp", "0.1.0")
 	mcp.RegisterPMTools(server, st)
 
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
 	slog.Info("PM MCP server started", "dir", root)
-	if err := server.Run(); err != nil {
+	if err := server.Run(ctx); err != nil {
 		slog.Error("server error", "error", err)
 		os.Exit(1)
 	}

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/xvantz/pm/internal/briefing"
@@ -199,46 +198,83 @@ func RegisterPMTools(s *Server, st store.Store) {
 }
 
 // toolHandler is a function that processes a tool call.
-type toolHandler func(st store.Store, args json.RawMessage) (string, error)
+type toolHandler func(st store.Store, ctx context.Context, args json.RawMessage) (string, error)
 
 // makeHandler wraps a toolHandler into an MCP Tool handler.
 func makeHandler(st store.Store, fn toolHandler) func(context.Context, json.RawMessage) (string, error) {
-	return func(_ context.Context, args json.RawMessage) (string, error) {
-		return fn(st, args)
+	return func(ctx context.Context, args json.RawMessage) (string, error) {
+		return fn(st, ctx, args)
 	}
+}
+
+// --- JSON response types for read handlers ---
+
+type jsonProjectItem struct {
+	Number    int      `json:"number"`
+	Title     string   `json:"title"`
+	Status    string   `json:"status"`
+	Tags      []string `json:"tags,omitempty"`
+	Goal      string   `json:"goal,omitempty"`
+	CreatedAt string   `json:"created_at"`
+	UpdatedAt string   `json:"updated_at"`
+}
+
+type jsonBlockerItem struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
+type jsonStepItem struct {
+	ID       string            `json:"id"`
+	Title    string            `json:"title"`
+	Status   string            `json:"status"`
+	Blockers []jsonBlockerItem `json:"blockers,omitempty"`
+}
+
+type jsonBlockerGroup struct {
+	StepID    string            `json:"step_id"`
+	StepTitle string            `json:"step_title"`
+	Blockers  []jsonBlockerItem `json:"blockers"`
+}
+
+type jsonDecisionItem struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Date   string `json:"date"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // --- Handlers ---
 
-func handleListProjects(st store.Store, args json.RawMessage) (string, error) {
+func handleListProjects(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
 	projects, err := st.ListProjects()
 	if err != nil {
 		return "", fmt.Errorf("list projects: %w", err)
 	}
 
-	if len(projects) == 0 {
-		return "No projects yet.", nil
+	items := make([]jsonProjectItem, 0, len(projects))
+	for _, p := range projects {
+		items = append(items, jsonProjectItem{
+			Number:    p.Number,
+			Title:     p.Title,
+			Status:    string(p.Status),
+			Tags:      p.Tags,
+			Goal:      p.Goal,
+			CreatedAt: p.CreatedAt,
+			UpdatedAt: p.UpdatedAt,
+		})
 	}
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "Projects: %d total\n\n", len(projects))
-	for _, p := range projects {
-		status := string(p.Status)
-		tags := ""
-		if len(p.Tags) > 0 {
-			tags = fmt.Sprintf(" [%s]", strings.Join(p.Tags, ", "))
-		}
-		goal := ""
-		if p.Goal != "" {
-			goal = fmt.Sprintf("\n    Goal: %s", p.Goal)
-		}
-		fmt.Fprintf(&b, "#%-3d %s%s\n    Status: %s%s\n    Created: %s\n\n",
-			p.Number, p.Title, tags, status, goal, p.CreatedAt)
-	}
-	return b.String(), nil
+	data, _ := json.Marshal(map[string]any{
+		"count":    len(items),
+		"projects": items,
+	})
+	return string(data), nil
 }
 
-func handleGetProject(st store.Store, args json.RawMessage) (string, error) {
+func handleGetProject(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		ProjectID string `json:"project_id"`
 	}
@@ -251,51 +287,11 @@ func handleGetProject(st store.Store, args json.RawMessage) (string, error) {
 		return "", err
 	}
 
-	var b strings.Builder
-	p := pd.Project
-	tags := ""
-	if len(p.Tags) > 0 {
-		tags = fmt.Sprintf(" [%s]", strings.Join(p.Tags, ", "))
-	}
-	fmt.Fprintf(&b, "#%d  %s%s\n", p.Number, p.Title, tags)
-	fmt.Fprintf(&b, "Status: %s | Created: %s | Updated: %s\n", p.Status, p.CreatedAt, p.UpdatedAt)
-	if p.Goal != "" {
-		fmt.Fprintf(&b, "Goal: %s\n", p.Goal)
-	}
-	if p.CompletedAt != "" {
-		fmt.Fprintf(&b, "Completed: %s\n", p.CompletedAt)
-	}
-	fmt.Fprintf(&b, "ID: %s\n", p.ID)
-
-	b.WriteString("\n--- Steps ---\n")
-	if len(pd.Steps) == 0 {
-		b.WriteString("  (none)\n")
-	}
-	for _, s := range pd.Steps {
-		fmt.Fprintf(&b, "  [%-11s] %s  (%s)\n", s.Status, s.Title, s.ID)
-		for _, bl := range s.Blockers {
-			fmt.Fprintf(&b, "    🚫 [%-8s] %s  (%s)\n", bl.Status, bl.Title, bl.ID)
-			if bl.Reason != "" {
-				fmt.Fprintf(&b, "           └─ %s\n", bl.Reason)
-			}
-		}
-	}
-
-	b.WriteString("\n--- Decisions ---\n")
-	if len(pd.Decisions) == 0 {
-		b.WriteString("  (none)\n")
-	}
-	for _, d := range pd.Decisions {
-		fmt.Fprintf(&b, "  • %s  (%s)\n", d.Title, d.Date)
-		if d.Reason != "" {
-			fmt.Fprintf(&b, "    └─ %s\n", d.Reason)
-		}
-	}
-
-	return b.String(), nil
+	data, _ := json.Marshal(pd)
+	return string(data), nil
 }
 
-func handleAddProject(st store.Store, args json.RawMessage) (string, error) {
+func handleAddProject(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		Title string   `json:"title"`
 		Goal  string   `json:"goal,omitempty"`
@@ -337,7 +333,7 @@ func handleAddProject(st store.Store, args json.RawMessage) (string, error) {
 		p.Number, p.Title, p.ID, p.Number), nil
 }
 
-func handleAddStep(st store.Store, args json.RawMessage) (string, error) {
+func handleAddStep(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		ProjectID string `json:"project_id"`
 		Title     string `json:"title"`
@@ -384,7 +380,7 @@ func handleAddStep(st store.Store, args json.RawMessage) (string, error) {
 		id, pd.Project.Number, pd.Project.Number, id), nil
 }
 
-func handleStartStep(st store.Store, args json.RawMessage) (string, error) {
+func handleStartStep(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		ProjectID string `json:"project_id"`
 		StepID    string `json:"step_id"`
@@ -406,7 +402,7 @@ func handleStartStep(st store.Store, args json.RawMessage) (string, error) {
 	return result, nil
 }
 
-func handleReviewStep(st store.Store, args json.RawMessage) (string, error) {
+func handleReviewStep(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		ProjectID string `json:"project_id"`
 		StepID    string `json:"step_id"`
@@ -428,7 +424,7 @@ func handleReviewStep(st store.Store, args json.RawMessage) (string, error) {
 	return result, nil
 }
 
-func handleDoneStep(st store.Store, args json.RawMessage) (string, error) {
+func handleDoneStep(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		ProjectID string `json:"project_id"`
 		StepID    string `json:"step_id"`
@@ -489,7 +485,7 @@ func advanceStep(st store.Store, projectRef, stepID string, newStatus types.Step
 	return "", fmt.Errorf("step %q not found in project #%d", stepID, pd.Project.Number)
 }
 
-func handleAddBlocker(st store.Store, args json.RawMessage) (string, error) {
+func handleAddBlocker(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		ProjectID string `json:"project_id"`
 		StepID    string `json:"step_id"`
@@ -553,7 +549,7 @@ func handleAddBlocker(st store.Store, args json.RawMessage) (string, error) {
 		id, params.StepID, pd.Project.Number), nil
 }
 
-func handleResolveBlocker(st store.Store, args json.RawMessage) (string, error) {
+func handleResolveBlocker(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		ProjectID string `json:"project_id"`
 		StepID    string `json:"step_id"`
@@ -626,7 +622,7 @@ func handleResolveBlocker(st store.Store, args json.RawMessage) (string, error) 
 		params.BlockerID, params.StepID, pd.Project.Number), nil
 }
 
-func handleAddDecision(st store.Store, args json.RawMessage) (string, error) {
+func handleAddDecision(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		ProjectID string `json:"project_id"`
 		Title     string `json:"title"`
@@ -672,13 +668,19 @@ func handleAddDecision(st store.Store, args json.RawMessage) (string, error) {
 	return fmt.Sprintf("Decision %q recorded in project #%d.", id, pd.Project.Number), nil
 }
 
-func handleGetBriefing(st store.Store, args json.RawMessage) (string, error) {
+func handleGetBriefing(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		Date      string `json:"date,omitempty"`
 		ProjectID string `json:"project_id,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		slog.Warn("get_briefing: ignoring invalid params", "error", err)
+	}
+
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	default:
 	}
 
 	cfg := briefing.Config{
@@ -697,7 +699,7 @@ func handleGetBriefing(st store.Store, args json.RawMessage) (string, error) {
 	return b.FormatMarkdown(), nil
 }
 
-func handleListSteps(st store.Store, args json.RawMessage) (string, error) {
+func handleListSteps(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		ProjectID string `json:"project_id"`
 	}
@@ -710,24 +712,34 @@ func handleListSteps(st store.Store, args json.RawMessage) (string, error) {
 		return "", err
 	}
 
-	if len(pd.Steps) == 0 {
-		return fmt.Sprintf("No steps in project #%d (%s).", pd.Project.Number, pd.Project.Title), nil
+	steps := make([]jsonStepItem, 0, len(pd.Steps))
+	for _, s := range pd.Steps {
+		blockers := make([]jsonBlockerItem, 0, len(s.Blockers))
+		for _, bl := range s.Blockers {
+			blockers = append(blockers, jsonBlockerItem{
+				ID:     bl.ID,
+				Title:  bl.Title,
+				Status: string(bl.Status),
+				Reason: bl.Reason,
+			})
+		}
+		steps = append(steps, jsonStepItem{
+			ID:       s.ID,
+			Title:    s.Title,
+			Status:   string(s.Status),
+			Blockers: blockers,
+		})
 	}
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "Steps for #%d %s:\n", pd.Project.Number, pd.Project.Title)
-	b.WriteString(strings.Repeat("-", 60))
-	b.WriteString("\n")
-	for _, s := range pd.Steps {
-		fmt.Fprintf(&b, "  [%-11s] %s  (%s)\n", s.Status, s.Title, s.ID)
-		for _, bl := range s.Blockers {
-			fmt.Fprintf(&b, "     🚫 [%s] %s\n", bl.Status, bl.Title)
-		}
-	}
-	return b.String(), nil
+	data, _ := json.Marshal(map[string]any{
+		"project_number": pd.Project.Number,
+		"project_title":  pd.Project.Title,
+		"steps":          steps,
+	})
+	return string(data), nil
 }
 
-func handleListBlockers(st store.Store, args json.RawMessage) (string, error) {
+func handleListBlockers(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		ProjectID string `json:"project_id"`
 	}
@@ -740,32 +752,35 @@ func handleListBlockers(st store.Store, args json.RawMessage) (string, error) {
 		return "", err
 	}
 
-	var b strings.Builder
-	hasBlockers := false
+	var groups []jsonBlockerGroup
 	for _, s := range pd.Steps {
 		if len(s.Blockers) > 0 {
-			if !hasBlockers {
-				fmt.Fprintf(&b, "Blockers for #%d %s:\n", pd.Project.Number, pd.Project.Title)
-				b.WriteString(strings.Repeat("-", 60))
-				b.WriteString("\n")
-				hasBlockers = true
-			}
-			fmt.Fprintf(&b, "  Step %q:\n", s.Title)
+			blockers := make([]jsonBlockerItem, 0, len(s.Blockers))
 			for _, bl := range s.Blockers {
-				fmt.Fprintf(&b, "    [%-8s] %s  (%s)\n", bl.Status, bl.Title, bl.ID)
-				if bl.Reason != "" {
-					fmt.Fprintf(&b, "           └─ %s\n", bl.Reason)
-				}
+				blockers = append(blockers, jsonBlockerItem{
+					ID:     bl.ID,
+					Title:  bl.Title,
+					Status: string(bl.Status),
+					Reason: bl.Reason,
+				})
 			}
+			groups = append(groups, jsonBlockerGroup{
+				StepID:    s.ID,
+				StepTitle: s.Title,
+				Blockers:  blockers,
+			})
 		}
 	}
-	if !hasBlockers {
-		return fmt.Sprintf("No blockers in project #%d (%s).", pd.Project.Number, pd.Project.Title), nil
-	}
-	return b.String(), nil
+
+	data, _ := json.Marshal(map[string]any{
+		"project_number": pd.Project.Number,
+		"project_title":  pd.Project.Title,
+		"blockers":       groups,
+	})
+	return string(data), nil
 }
 
-func handleListDecisions(st store.Store, args json.RawMessage) (string, error) {
+func handleListDecisions(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		ProjectID string `json:"project_id"`
 	}
@@ -779,24 +794,20 @@ func handleListDecisions(st store.Store, args json.RawMessage) (string, error) {
 	}
 
 	decisions := pd.Decisions
-
-	if len(decisions) == 0 {
-		return fmt.Sprintf("No decisions in project #%d (%s).", pd.Project.Number, pd.Project.Title), nil
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "Decisions for #%d %s:\n", pd.Project.Number, pd.Project.Title)
-	b.WriteString(strings.Repeat("-", 60))
-	b.WriteString("\n")
+	items := make([]jsonDecisionItem, 0, len(decisions))
 	for _, d := range decisions {
-		r := d.Reason
-		if r == "" {
-			r = "—"
-		}
-		fmt.Fprintf(&b, "  %s — %s  (%s)\n", d.Title, d.Date, d.ID)
-		if d.Reason != "" {
-			fmt.Fprintf(&b, "    └─ %s\n", d.Reason)
-		}
+		items = append(items, jsonDecisionItem{
+			ID:     d.ID,
+			Title:  d.Title,
+			Date:   d.Date,
+			Reason: d.Reason,
+		})
 	}
-	return b.String(), nil
+
+	data, _ := json.Marshal(map[string]any{
+		"project_number": pd.Project.Number,
+		"project_title":  pd.Project.Title,
+		"decisions":      items,
+	})
+	return string(data), nil
 }

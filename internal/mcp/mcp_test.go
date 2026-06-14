@@ -41,7 +41,7 @@ func TestServer_Initialize(t *testing.T) {
 	var buf bytes.Buffer
 	initialized := false
 
-	s.handleMessage(
+	s.handleMessage(context.Background(), 
 		json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`),
 		&buf, &initialized,
 	)
@@ -72,7 +72,7 @@ func TestServer_ToolsList(t *testing.T) {
 	var buf bytes.Buffer
 	initialized := true // already initialized
 
-	s.handleMessage(
+	s.handleMessage(context.Background(), 
 		json.RawMessage(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`),
 		&buf, &initialized,
 	)
@@ -114,7 +114,7 @@ func TestServer_ToolsCall(t *testing.T) {
 	var buf bytes.Buffer
 	initialized := true
 
-	s.handleMessage(
+	s.handleMessage(context.Background(), 
 		json.RawMessage(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"hello","arguments":{"name":"World"}}}`),
 		&buf, &initialized,
 	)
@@ -147,7 +147,7 @@ func TestServer_NotInitialized(t *testing.T) {
 	initialized := false
 
 	// Should reject tools/list before initialized
-	s.handleMessage(
+	s.handleMessage(context.Background(), 
 		json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`),
 		&buf, &initialized,
 	)
@@ -166,7 +166,7 @@ func TestServer_UnknownTool(t *testing.T) {
 	var buf bytes.Buffer
 	initialized := true
 
-	s.handleMessage(
+	s.handleMessage(context.Background(), 
 		json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"nonexistent","arguments":{}}}`),
 		&buf, &initialized,
 	)
@@ -267,39 +267,39 @@ func TestSlug_Lowercase(t *testing.T) {
 
 func TestHandleListProjects(t *testing.T) {
 	st := store.NewMockStore()
-	result, err := handleListProjects(st, json.RawMessage(`{}`))
+	result, err := handleListProjects(st, context.Background(), json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("handleListProjects error: %v", err)
 	}
-	if !strings.Contains(result, "Projects: 6 total") {
-		t.Errorf("result missing '6 total': %s", result)
+	if !strings.Contains(result, "\"projects\"") {
+		t.Errorf("result missing 'projects' field: %s", result)
 	}
-	if !strings.Contains(result, "AdGuard Home") {
+	if !strings.Contains(result, "\"title\":\"AdGuard Home\"") {
 		t.Errorf("result missing 'AdGuard Home': %s", result)
 	}
 }
 
 func TestHandleGetProject(t *testing.T) {
 	st := store.NewMockStore()
-	result, err := handleGetProject(st, json.RawMessage(`{"project_id":"1"}`))
+	result, err := handleGetProject(st, context.Background(), json.RawMessage(`{"project_id":"1"}`))
 	if err != nil {
 		t.Fatalf("handleGetProject error: %v", err)
 	}
-	if !strings.Contains(result, "#1") {
+	if !strings.Contains(result, "\"number\":1") {
 		t.Errorf("result missing '#1': %s", result)
 	}
-	if !strings.Contains(result, "AdGuard Home") {
+	if !strings.Contains(result, "\"title\":\"AdGuard Home\"") {
 		t.Errorf("result missing 'AdGuard Home': %s", result)
 	}
-	if !strings.Contains(result, "configure-dns") {
+	if !strings.Contains(result, "\"id\":\"configure-dns\"") {
 		t.Errorf("result missing step 'configure-dns': %s", result)
 	}
-	if !strings.Contains(result, "router") {
+	if !strings.Contains(result, "\"id\":\"router\"") {
 		t.Errorf("result missing blocker 'router': %s", result)
 	}
 
 	// Not found
-	_, err = handleGetProject(st, json.RawMessage(`{"project_id":"999"}`))
+	_, err = handleGetProject(st, context.Background(), json.RawMessage(`{"project_id":"999"}`))
 	if err == nil {
 		t.Error("expected error for non-existent project, got nil")
 	}
@@ -307,7 +307,7 @@ func TestHandleGetProject(t *testing.T) {
 
 func TestHandleAddProject(t *testing.T) {
 	st := store.NewMockStore()
-	result, err := handleAddProject(st, json.RawMessage(`{"title":"New Test Project","goal":"Testing","tags":["test"]}`))
+	result, err := handleAddProject(st, context.Background(), json.RawMessage(`{"title":"New Test Project","goal":"Testing","tags":["test"]}`))
 	if err != nil {
 		t.Fatalf("handleAddProject error: %v", err)
 	}
@@ -341,7 +341,7 @@ func TestHandleAddProject(t *testing.T) {
 	}
 
 	// Empty title
-	_, err = handleAddProject(st, json.RawMessage(`{"title":""}`))
+	_, err = handleAddProject(st, context.Background(), json.RawMessage(`{"title":""}`))
 	if err == nil {
 		t.Error("expected error for empty title")
 	}
@@ -349,7 +349,7 @@ func TestHandleAddProject(t *testing.T) {
 
 func TestHandleAddStep(t *testing.T) {
 	st := store.NewMockStore()
-	result, err := handleAddStep(st, json.RawMessage(`{"project_id":"1","title":"New Step"}`))
+	result, err := handleAddStep(st, context.Background(), json.RawMessage(`{"project_id":"1","title":"New Step"}`))
 	if err != nil {
 		t.Fatalf("handleAddStep error: %v", err)
 	}
@@ -361,13 +361,13 @@ func TestHandleAddStep(t *testing.T) {
 	}
 
 	// Duplicate
-	_, err = handleAddStep(st, json.RawMessage(`{"project_id":"1","title":"New Step"}`))
+	_, err = handleAddStep(st, context.Background(), json.RawMessage(`{"project_id":"1","title":"New Step"}`))
 	if err == nil {
 		t.Error("expected error for duplicate step")
 	}
 
 	// Non-existent project
-	_, err = handleAddStep(st, json.RawMessage(`{"project_id":"999","title":"Step"}`))
+	_, err = handleAddStep(st, context.Background(), json.RawMessage(`{"project_id":"999","title":"Step"}`))
 	if err == nil {
 		t.Error("expected error for non-existent project")
 	}
@@ -375,7 +375,7 @@ func TestHandleAddStep(t *testing.T) {
 
 func TestHandleStartStep(t *testing.T) {
 	st := store.NewMockStore()
-	result, err := handleStartStep(st, json.RawMessage(`{"project_id":"1","step_id":"vpn-access"}`))
+	result, err := handleStartStep(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"vpn-access"}`))
 	if err != nil {
 		t.Fatalf("handleStartStep error: %v", err)
 	}
@@ -384,7 +384,7 @@ func TestHandleStartStep(t *testing.T) {
 	}
 
 	// Already done step
-	_, err = handleStartStep(st, json.RawMessage(`{"project_id":"1","step_id":"setup-caddy"}`))
+	_, err = handleStartStep(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"setup-caddy"}`))
 	if err == nil {
 		t.Error("expected error for starting a done step")
 	}
@@ -392,7 +392,7 @@ func TestHandleStartStep(t *testing.T) {
 
 func TestHandleReviewStep(t *testing.T) {
 	st := store.NewMockStore()
-	result, err := handleReviewStep(st, json.RawMessage(`{"project_id":"2","step_id":"review-spec"}`))
+	result, err := handleReviewStep(st, context.Background(), json.RawMessage(`{"project_id":"2","step_id":"review-spec"}`))
 	if err != nil {
 		t.Fatalf("handleReviewStep error: %v", err)
 	}
@@ -414,7 +414,7 @@ func TestHandleDoneStep(t *testing.T) {
 		}
 	}
 
-	result, err := handleDoneStep(st, json.RawMessage(`{"project_id":"2","step_id":"review-spec"}`))
+	result, err := handleDoneStep(st, context.Background(), json.RawMessage(`{"project_id":"2","step_id":"review-spec"}`))
 	if err != nil {
 		t.Fatalf("handleDoneStep error: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestHandleDoneStep(t *testing.T) {
 	}
 
 	// Blocked step should fail
-	_, err = handleDoneStep(st, json.RawMessage(`{"project_id":"1","step_id":"configure-dns"}`))
+	_, err = handleDoneStep(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"configure-dns"}`))
 	if err == nil {
 		t.Error("expected error for blocked step")
 	}
@@ -431,7 +431,7 @@ func TestHandleDoneStep(t *testing.T) {
 
 func TestHandleAddBlocker(t *testing.T) {
 	st := store.NewMockStore()
-	result, err := handleAddBlocker(st, json.RawMessage(`{"project_id":"1","step_id":"test-dns","title":"No access","reason":"Need admin credentials"}`))
+	result, err := handleAddBlocker(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"test-dns","title":"No access","reason":"Need admin credentials"}`))
 	if err != nil {
 		t.Fatalf("handleAddBlocker error: %v", err)
 	}
@@ -459,7 +459,7 @@ func TestHandleAddBlocker(t *testing.T) {
 	}
 
 	// Non-existent step
-	_, err = handleAddBlocker(st, json.RawMessage(`{"project_id":"1","step_id":"nonexistent","title":"Blocker"}`))
+	_, err = handleAddBlocker(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"nonexistent","title":"Blocker"}`))
 	if err == nil {
 		t.Error("expected error for non-existent step")
 	}
@@ -469,7 +469,7 @@ func TestHandleResolveBlocker(t *testing.T) {
 	st := store.NewMockStore()
 
 	// Resolve the router blocker on AGH's configure-dns step
-	result, err := handleResolveBlocker(st, json.RawMessage(`{"project_id":"1","step_id":"configure-dns","blocker_id":"router"}`))
+	result, err := handleResolveBlocker(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"configure-dns","blocker_id":"router"}`))
 	if err != nil {
 		t.Fatalf("handleResolveBlocker error: %v", err)
 	}
@@ -495,7 +495,7 @@ func TestHandleResolveBlocker(t *testing.T) {
 	}
 
 	// Non-existent blocker
-	_, err = handleResolveBlocker(st, json.RawMessage(`{"project_id":"1","step_id":"configure-dns","blocker_id":"nonexistent"}`))
+	_, err = handleResolveBlocker(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"configure-dns","blocker_id":"nonexistent"}`))
 	if err == nil {
 		t.Error("expected error for non-existent blocker")
 	}
@@ -503,7 +503,7 @@ func TestHandleResolveBlocker(t *testing.T) {
 
 func TestHandleAddDecision(t *testing.T) {
 	st := store.NewMockStore()
-	result, err := handleAddDecision(st, json.RawMessage(`{"project_id":"3","title":"Use Python","reason":"Better ecosystem"}`))
+	result, err := handleAddDecision(st, context.Background(), json.RawMessage(`{"project_id":"3","title":"Use Python","reason":"Better ecosystem"}`))
 	if err != nil {
 		t.Fatalf("handleAddDecision error: %v", err)
 	}
@@ -512,7 +512,7 @@ func TestHandleAddDecision(t *testing.T) {
 	}
 
 	// Duplicate
-	_, err = handleAddDecision(st, json.RawMessage(`{"project_id":"3","title":"Use Python"}`))
+	_, err = handleAddDecision(st, context.Background(), json.RawMessage(`{"project_id":"3","title":"Use Python"}`))
 	if err == nil {
 		t.Error("expected error for duplicate decision")
 	}
@@ -522,7 +522,7 @@ func TestHandleGetBriefing(t *testing.T) {
 	st := store.NewMockStore()
 
 	// Full briefing
-	result, err := handleGetBriefing(st, json.RawMessage(`{"date":"2026-06-14"}`))
+	result, err := handleGetBriefing(st, context.Background(), json.RawMessage(`{"date":"2026-06-14"}`))
 	if err != nil {
 		t.Fatalf("handleGetBriefing error: %v", err)
 	}
@@ -534,7 +534,7 @@ func TestHandleGetBriefing(t *testing.T) {
 	}
 
 	// Single project briefing
-	result, err = handleGetBriefing(st, json.RawMessage(`{"date":"2026-06-14","project_id":"1"}`))
+	result, err = handleGetBriefing(st, context.Background(), json.RawMessage(`{"date":"2026-06-14","project_id":"1"}`))
 	if err != nil {
 		t.Fatalf("handleGetBriefing(single) error: %v", err)
 	}
@@ -545,19 +545,19 @@ func TestHandleGetBriefing(t *testing.T) {
 
 func TestHandleListSteps(t *testing.T) {
 	st := store.NewMockStore()
-	result, err := handleListSteps(st, json.RawMessage(`{"project_id":"1"}`))
+	result, err := handleListSteps(st, context.Background(), json.RawMessage(`{"project_id":"1"}`))
 	if err != nil {
 		t.Fatalf("handleListSteps error: %v", err)
 	}
-	if !strings.Contains(result, "Steps for #1") {
+	if !strings.Contains(result, "\"project_number\":1") {
 		t.Errorf("result missing header: %s", result)
 	}
-	if !strings.Contains(result, "configure-dns") {
+	if !strings.Contains(result, "\"id\":\"configure-dns\"") {
 		t.Errorf("result missing step: %s", result)
 	}
 
 	// Non-existent project
-	_, err = handleListSteps(st, json.RawMessage(`{"project_id":"999"}`))
+	_, err = handleListSteps(st, context.Background(), json.RawMessage(`{"project_id":"999"}`))
 	if err == nil {
 		t.Error("expected error for non-existent project")
 	}
@@ -565,39 +565,39 @@ func TestHandleListSteps(t *testing.T) {
 
 func TestHandleListBlockers(t *testing.T) {
 	st := store.NewMockStore()
-	result, err := handleListBlockers(st, json.RawMessage(`{"project_id":"1"}`))
+	result, err := handleListBlockers(st, context.Background(), json.RawMessage(`{"project_id":"1"}`))
 	if err != nil {
 		t.Fatalf("handleListBlockers error: %v", err)
 	}
-	if !strings.Contains(result, "Blockers for #1") {
+	if !strings.Contains(result, "\"project_number\":1") {
 		t.Errorf("result missing header: %s", result)
 	}
-	if !strings.Contains(result, "router") {
+	if !strings.Contains(result, "\"id\":\"router\"") {
 		t.Errorf("result missing blocker: %s", result)
 	}
 }
 
 func TestHandleListDecisions(t *testing.T) {
 	st := store.NewMockStore()
-	result, err := handleListDecisions(st, json.RawMessage(`{"project_id":"1"}`))
+	result, err := handleListDecisions(st, context.Background(), json.RawMessage(`{"project_id":"1"}`))
 	if err != nil {
 		t.Fatalf("handleListDecisions error: %v", err)
 	}
-	if !strings.Contains(result, "Decisions for #1") {
+	if !strings.Contains(result, "\"project_number\":1") {
 		t.Errorf("result missing header: %s", result)
 	}
-	if !strings.Contains(result, "migrate-docker") {
+	if !strings.Contains(result, "\"id\":\"migrate-docker\"") {
 		t.Errorf("result missing decision: %s", result)
 	}
 }
 
 func TestHandleListBlockers_None(t *testing.T) {
 	st := store.NewMockStore()
-	result, err := handleListBlockers(st, json.RawMessage(`{"project_id":"2"}`))
+	result, err := handleListBlockers(st, context.Background(), json.RawMessage(`{"project_id":"2"}`))
 	if err != nil {
 		t.Fatalf("handleListBlockers(no blockers) error: %v", err)
 	}
-	if !strings.Contains(result, "No blockers") {
+	if !strings.Contains(result, "\"blockers\":null") {
 		t.Errorf("result mismatch: %s", result)
 	}
 }
@@ -605,7 +605,7 @@ func TestHandleListBlockers_None(t *testing.T) {
 func TestHandleStartStep_AlreadyInProgress(t *testing.T) {
 	st := store.NewMockStore()
 	// Start a todo step (vpn-access in project #1)
-	result, err := handleStartStep(st, json.RawMessage(`{"project_id":"1","step_id":"vpn-access"}`))
+	result, err := handleStartStep(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"vpn-access"}`))
 	if err != nil {
 		t.Fatalf("first start should succeed: %v", err)
 	}
@@ -613,7 +613,7 @@ func TestHandleStartStep_AlreadyInProgress(t *testing.T) {
 		t.Errorf("result: %s", result)
 	}
 	// Starting again should fail
-	_, err = handleStartStep(st, json.RawMessage(`{"project_id":"1","step_id":"vpn-access"}`))
+	_, err = handleStartStep(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"vpn-access"}`))
 	if err == nil {
 		t.Error("expected error for starting already in_progress step")
 	}
@@ -622,7 +622,7 @@ func TestHandleStartStep_AlreadyInProgress(t *testing.T) {
 func TestHandleDoneStep_BlockedStep(t *testing.T) {
 	st := store.NewMockStore()
 	// configure-dns has an unresolved blocker
-	_, err := handleDoneStep(st, json.RawMessage(`{"project_id":"1","step_id":"configure-dns"}`))
+	_, err := handleDoneStep(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"configure-dns"}`))
 	if err == nil {
 		t.Error("expected error for done on blocked step")
 	}
@@ -661,18 +661,18 @@ func TestRegisterPMTools(t *testing.T) {
 
 func TestHandleListProjects_Empty(t *testing.T) {
 	st := store.NewFileStore(t.TempDir())
-	result, err := handleListProjects(st, json.RawMessage(`{}`))
+	result, err := handleListProjects(st, context.Background(), json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("handleListProjects error: %v", err)
 	}
-	if !strings.Contains(result, "No projects") {
+	if !strings.Contains(result, "\"projects\":[]") {
 		t.Errorf("result mismatch: %s", result)
 	}
 }
 
 func TestHandleGetProject_NotFound(t *testing.T) {
 	st := store.NewFileStore(t.TempDir())
-	_, err := handleGetProject(st, json.RawMessage(`{"project_id":"1"}`))
+	_, err := handleGetProject(st, context.Background(), json.RawMessage(`{"project_id":"1"}`))
 	if err == nil {
 		t.Error("expected error for non-existent project")
 	}
@@ -680,7 +680,7 @@ func TestHandleGetProject_NotFound(t *testing.T) {
 
 func TestHandleAddProject_EmptyTitle(t *testing.T) {
 	st := store.NewMockStore()
-	_, err := handleAddProject(st, json.RawMessage(`{"title":""}`))
+	_, err := handleAddProject(st, context.Background(), json.RawMessage(`{"title":""}`))
 	if err == nil {
 		t.Error("expected error for empty title")
 	}
@@ -688,7 +688,7 @@ func TestHandleAddProject_EmptyTitle(t *testing.T) {
 
 func TestHandleAddProject_InvalidTitle(t *testing.T) {
 	st := store.NewMockStore()
-	_, err := handleAddProject(st, json.RawMessage(`{"title":"'\"\""}`))
+	_, err := handleAddProject(st, context.Background(), json.RawMessage(`{"title":"'\"\""}`))
 	if err == nil {
 		t.Error("expected error for invalid title")
 	}
@@ -697,8 +697,8 @@ func TestHandleAddProject_InvalidTitle(t *testing.T) {
 func TestHandleAddBlocker_Duplicate(t *testing.T) {
 	st := store.NewMockStore()
 	// Add, then duplicate
-	handleAddBlocker(st, json.RawMessage(`{"project_id":"1","step_id":"vpn-access","title":"Test Blk"}`))
-	_, err := handleAddBlocker(st, json.RawMessage(`{"project_id":"1","step_id":"vpn-access","title":"Test Blk"}`))
+	handleAddBlocker(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"vpn-access","title":"Test Blk"}`))
+	_, err := handleAddBlocker(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"vpn-access","title":"Test Blk"}`))
 	if err == nil {
 		t.Error("expected error for duplicate blocker")
 	}

@@ -45,16 +45,23 @@ func (s *Server) AddTool(t Tool) {
 
 // Run starts the MCP stdio server loop. It reads JSON-RPC messages from
 // stdin (Content-Length framed) and writes responses to stdout.
-func (s *Server) Run() error {
-	return s.runWithWriter(os.Stdout)
+// The context controls server lifecycle: cancel it for graceful shutdown.
+func (s *Server) Run(ctx context.Context) error {
+	return s.runWithWriter(ctx, os.Stdout)
 }
 
 // runWithWriter is like Run but allows specifying the output writer (for testing).
-func (s *Server) runWithWriter(w io.Writer) error {
+func (s *Server) runWithWriter(ctx context.Context, w io.Writer) error {
 	r := newMessageReader(os.Stdin)
 	initialized := false
 
 	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		body, err := r.readMessage()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -70,7 +77,7 @@ func (s *Server) runWithWriter(w io.Writer) error {
 			continue
 		}
 
-		s.handleMessage(req, w, &initialized)
+		s.handleMessage(ctx, req, w, &initialized)
 	}
 }
 
@@ -90,7 +97,7 @@ type jsonrpcError struct {
 	Data    string `json:"data,omitempty"`
 }
 
-func (s *Server) handleMessage(body json.RawMessage, w io.Writer, initialized *bool) {
+func (s *Server) handleMessage(ctx context.Context, body json.RawMessage, w io.Writer, initialized *bool) {
 	var msg jsonrpcMessage
 	if err := json.Unmarshal(body, &msg); err != nil {
 		sendError(w, nil, -32700, "Parse error", "")
@@ -118,7 +125,7 @@ func (s *Server) handleMessage(body json.RawMessage, w io.Writer, initialized *b
 			sendError(w, msg.ID, -32000, "Not initialized", "")
 			return
 		}
-		s.handleToolCall(w, msg.ID, msg.Params)
+		s.handleToolCall(ctx, w, msg.ID, msg.Params)
 
 	default:
 		if !isNotification {
@@ -153,7 +160,7 @@ func (s *Server) handleToolsList(w io.Writer, id *int) {
 	sendResult(w, id, map[string]any{"tools": tools})
 }
 
-func (s *Server) handleToolCall(w io.Writer, id *int, params json.RawMessage) {
+func (s *Server) handleToolCall(ctx context.Context, w io.Writer, id *int, params json.RawMessage) {
 	var call struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -165,7 +172,7 @@ func (s *Server) handleToolCall(w io.Writer, id *int, params json.RawMessage) {
 
 	for _, t := range s.tools {
 		if t.Name == call.Name {
-			text, err := t.Handler(context.Background(), call.Arguments)
+			text, err := t.Handler(ctx, call.Arguments)
 			if err != nil {
 				sendError(w, id, -32603, err.Error(), "")
 				return
