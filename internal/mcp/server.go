@@ -194,7 +194,11 @@ func sendResult(w io.Writer, id *int, result any) {
 		JSONRPC: "2.0",
 		ID:      id,
 	}
-	respBytes, _ := json.Marshal(result)
+	respBytes, err := json.Marshal(result)
+	if err != nil {
+		slog.Error("mcp: marshal result", "error", err)
+		return
+	}
 	resp.Result = respBytes
 	writeMessage(w, resp)
 }
