@@ -5,6 +5,8 @@ import (
 	"strings"
 )
 
+var slugMultiDash = regexp.MustCompile(`-{2,}`)
+
 // slug converts a title to a filesystem-safe identifier.
 // Must match the behavior of internal/cli/slug.go.
 func slug(title string) string {
@@ -14,8 +16,7 @@ func slug(title string) string {
 		".", "-", ":", "-", ",", "-",
 		"'", "", "\"", "", "(", "", ")", "", "`", "",
 	).Replace(s)
-	re := regexp.MustCompile(`-{2,}`)
-	s = re.ReplaceAllString(s, "-")
+	s = slugMultiDash.ReplaceAllString(s, "-")
 	s = strings.Trim(s, "-")
 	return s
 }

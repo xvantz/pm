@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -56,10 +57,11 @@ func (s *Server) runWithWriter(w io.Writer) error {
 	for {
 		body, err := r.readMessage()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return nil
 			}
-			return fmt.Errorf("read message: %w", err)
+			slog.Error("mcp: read error, skipping", "error", err)
+			continue
 		}
 
 		var req json.RawMessage
