@@ -17,6 +17,9 @@ import (
 	"github.com/xvantz/pm/internal/store"
 )
 
+// Version set by -ldflags during build; fallback for dev.
+var Version = "dev"
+
 func main() {
 	root := projectsDir()
 
@@ -28,7 +31,7 @@ func main() {
 
 	st := store.NewFileStore(root)
 
-	server := mcp.NewServer("pm-mcp", "0.1.0")
+	server := mcp.NewServer("pm-mcp", Version)
 	mcp.RegisterPMTools(server, st)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

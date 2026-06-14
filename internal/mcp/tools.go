@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/xvantz/pm/internal/briefing"
 	"github.com/xvantz/pm/internal/store"
+	"github.com/xvantz/pm/internal/slug"
 	"github.com/xvantz/pm/internal/types"
 )
 
@@ -309,11 +310,15 @@ func handleAddProject(st store.Store, ctx context.Context, args json.RawMessage)
 	if params.Title == "" {
 		return "", fmt.Errorf("title is required")
 	}
-	if slug(params.Title) == "" {
+	if slug.Of(params.Title) == "" {
 		return "", fmt.Errorf("invalid title: %q", params.Title)
 	}
 
-	id := uuid.Must(uuid.NewV7()).String()
+	uid, err := uuid.NewV7()
+	if err != nil {
+		return "", fmt.Errorf("generate project id: %w", err)
+	}
+	id := uid.String()
 	now := types.NowISO()
 	nextNum, err := st.NextNumber()
 	if err != nil {
@@ -353,7 +358,7 @@ func handleAddStep(st store.Store, ctx context.Context, args json.RawMessage) (s
 		return "", err
 	}
 
-	id := slug(params.Title)
+	id := slug.Of(params.Title)
 	if id == "" {
 		return "", fmt.Errorf("invalid step title: %q", params.Title)
 	}
@@ -519,7 +524,7 @@ func handleAddBlocker(st store.Store, ctx context.Context, args json.RawMessage)
 		return "", fmt.Errorf("step %q not found in project #%d", params.StepID, pd.Project.Number)
 	}
 
-	id := slug(params.Title)
+	id := slug.Of(params.Title)
 	if id == "" {
 		return "", fmt.Errorf("invalid blocker title: %q", params.Title)
 	}
@@ -643,7 +648,7 @@ func handleAddDecision(st store.Store, ctx context.Context, args json.RawMessage
 		return "", err
 	}
 
-	id := slug(params.Title)
+	id := slug.Of(params.Title)
 	if id == "" {
 		return "", fmt.Errorf("invalid decision title: %q", params.Title)
 	}
@@ -690,8 +695,9 @@ func handleGetBriefing(st store.Store, ctx context.Context, args json.RawMessage
 	}
 
 	cfg := briefing.Config{
-		Store: st,
-		Date:  params.Date,
+		Context:       ctx,
+		Store:         st,
+		Date:          params.Date,
 	}
 	if params.ProjectID != "" {
 		cfg.FilterProject = params.ProjectID

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/xvantz/pm/internal/slug"
 	"github.com/xvantz/pm/internal/types"
 )
 
@@ -47,7 +48,7 @@ func cmdDecisionAdd(args []string) error {
 		return fmt.Errorf("resolve %q: %w", ref, err)
 	}
 
-	id := slug(title)
+	id := slug.Of(title)
 	if id == "" {
 		return fmt.Errorf("invalid decision title: %q", title)
 	}

@@ -37,13 +37,14 @@ func readMCPResponse(t *testing.T, buf *bytes.Buffer) jsonrpcMessage {
 // --- Server protocol tests ---
 
 func TestServer_Initialize(t *testing.T) {
+	t.Parallel()
 	s := NewServer("test", "1.0")
 	var buf bytes.Buffer
-	initialized := false
+	state := stateNew
 
 	s.handleMessage(context.Background(), 
 		json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`),
-		&buf, &initialized,
+		&buf, &state,
 	)
 
 	resp := readMCPResponse(t, &buf)
@@ -59,6 +60,7 @@ func TestServer_Initialize(t *testing.T) {
 }
 
 func TestServer_ToolsList(t *testing.T) {
+	t.Parallel()
 	s := NewServer("test", "1.0")
 	s.AddTool(Tool{
 		Name:        "echo",
@@ -70,11 +72,11 @@ func TestServer_ToolsList(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	initialized := true // already initialized
+	state := stateInitialized // already initialized
 
 	s.handleMessage(context.Background(), 
 		json.RawMessage(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`),
-		&buf, &initialized,
+		&buf, &state,
 	)
 
 	resp := readMCPResponse(t, &buf)
@@ -99,6 +101,7 @@ func TestServer_ToolsList(t *testing.T) {
 }
 
 func TestServer_ToolsCall(t *testing.T) {
+	t.Parallel()
 	s := NewServer("test", "1.0")
 	s.AddTool(Tool{
 		Name:        "hello",
@@ -112,11 +115,11 @@ func TestServer_ToolsCall(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	initialized := true
+	state := stateInitialized
 
 	s.handleMessage(context.Background(), 
 		json.RawMessage(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"hello","arguments":{"name":"World"}}}`),
-		&buf, &initialized,
+		&buf, &state,
 	)
 
 	resp := readMCPResponse(t, &buf)
@@ -142,14 +145,15 @@ func TestServer_ToolsCall(t *testing.T) {
 }
 
 func TestServer_NotInitialized(t *testing.T) {
+	t.Parallel()
 	s := NewServer("test", "1.0")
 	var buf bytes.Buffer
-	initialized := false
+	state := stateNew
 
 	// Should reject tools/list before initialized
 	s.handleMessage(context.Background(), 
 		json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`),
-		&buf, &initialized,
+		&buf, &state,
 	)
 
 	resp := readMCPResponse(t, &buf)
@@ -162,13 +166,14 @@ func TestServer_NotInitialized(t *testing.T) {
 }
 
 func TestServer_UnknownTool(t *testing.T) {
+	t.Parallel()
 	s := NewServer("test", "1.0")
 	var buf bytes.Buffer
-	initialized := true
+	state := stateInitialized
 
 	s.handleMessage(context.Background(), 
 		json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"nonexistent","arguments":{}}}`),
-		&buf, &initialized,
+		&buf, &state,
 	)
 
 	resp := readMCPResponse(t, &buf)
@@ -177,95 +182,10 @@ func TestServer_UnknownTool(t *testing.T) {
 	}
 }
 
-// --- Slug tests ---
-
-func TestSlug_Simple(t *testing.T) {
-	if slug("Hello World") != "hello-world" {
-		t.Errorf("slug = %q, want %q", slug("Hello World"), "hello-world")
-	}
-}
-
-func TestSlug_Cyrillic(t *testing.T) {
-	s := slug("Настроить Caddy reverse proxy")
-	want := "настроить-caddy-reverse-proxy"
-	if s != want {
-		t.Errorf("slug = %q, want %q", s, want)
-	}
-}
-
-func TestSlug_SpecialChars(t *testing.T) {
-	cases := []struct {
-		input, want string
-	}{
-		{"Test/Path", "test-path"},
-		{"test_file.yaml", "test-file-yaml"},
-		{"key:value", "key-value"},
-		{"a,b,c", "a-b-c"},
-		{"it's ok", "its-ok"},
-		{`"quoted"`, "quoted"},
-		{"(parens)", "parens"},
-		{"back`tick`", "backtick"},
-	}
-	for _, c := range cases {
-		got := slug(c.input)
-		if got != c.want {
-			t.Errorf("slug(%q) = %q, want %q", c.input, got, c.want)
-		}
-	}
-}
-
-func TestSlug_TrimDashes(t *testing.T) {
-	cases := []struct {
-		input, want string
-	}{
-		{"-leading", "leading"},
-		{"trailing-", "trailing"},
-		{"-both-", "both"},
-	}
-	for _, c := range cases {
-		got := slug(c.input)
-		if got != c.want {
-			t.Errorf("slug(%q) = %q, want %q", c.input, got, c.want)
-		}
-	}
-}
-
-func TestSlug_CollapseMultipleDashes(t *testing.T) {
-	s := slug("foo   bar___baz")
-	if s != "foo-bar-baz" {
-		t.Errorf("slug = %q, want %q", s, "foo-bar-baz")
-	}
-}
-
-func TestSlug_Empty(t *testing.T) {
-	cases := []string{"", "'", `"`, "`", "'\"`"}
-	for _, c := range cases {
-		if slug(c) != "" {
-			t.Errorf("slug(%q) should be empty, got %q", c, slug(c))
-		}
-	}
-}
-
-func TestSlug_NoTruncation(t *testing.T) {
-	long := "abcdefghij-abcdefghij-abcdefghij-abcdefghij-abcdefghij-xxx"
-	s := slug(long)
-	if len(s) <= 50 {
-		t.Errorf("slug truncated: len=%d, want > 50", len(s))
-	}
-	if s != long {
-		t.Errorf("slug = %q, want %q", s, long)
-	}
-}
-
-func TestSlug_Lowercase(t *testing.T) {
-	if slug("HELLO WORLD") != "hello-world" {
-		t.Errorf("slug = %q, want %q", slug("HELLO WORLD"), "hello-world")
-	}
-}
-
 // --- Handler tests (with MockStore) ---
 
 func TestHandleListProjects(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	result, err := handleListProjects(st, context.Background(), json.RawMessage(`{}`))
 	if err != nil {
@@ -280,6 +200,7 @@ func TestHandleListProjects(t *testing.T) {
 }
 
 func TestHandleGetProject(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	result, err := handleGetProject(st, context.Background(), json.RawMessage(`{"project_id":"1"}`))
 	if err != nil {
@@ -306,6 +227,7 @@ func TestHandleGetProject(t *testing.T) {
 }
 
 func TestHandleAddProject(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	result, err := handleAddProject(st, context.Background(), json.RawMessage(`{"title":"New Test Project","goal":"Testing","tags":["test"]}`))
 	if err != nil {
@@ -348,6 +270,7 @@ func TestHandleAddProject(t *testing.T) {
 }
 
 func TestHandleAddStep(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	result, err := handleAddStep(st, context.Background(), json.RawMessage(`{"project_id":"1","title":"New Step"}`))
 	if err != nil {
@@ -374,6 +297,7 @@ func TestHandleAddStep(t *testing.T) {
 }
 
 func TestHandleStartStep(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	result, err := handleStartStep(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"vpn-access"}`))
 	if err != nil {
@@ -391,6 +315,7 @@ func TestHandleStartStep(t *testing.T) {
 }
 
 func TestHandleReviewStep(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	result, err := handleReviewStep(st, context.Background(), json.RawMessage(`{"project_id":"2","step_id":"review-spec"}`))
 	if err != nil {
@@ -402,6 +327,7 @@ func TestHandleReviewStep(t *testing.T) {
 }
 
 func TestHandleDoneStep(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 
 	// Must go through review first
@@ -430,6 +356,7 @@ func TestHandleDoneStep(t *testing.T) {
 }
 
 func TestHandleAddBlocker(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	result, err := handleAddBlocker(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"test-dns","title":"No access","reason":"Need admin credentials"}`))
 	if err != nil {
@@ -466,6 +393,7 @@ func TestHandleAddBlocker(t *testing.T) {
 }
 
 func TestHandleResolveBlocker(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 
 	// Resolve the router blocker on AGH's configure-dns step
@@ -502,6 +430,7 @@ func TestHandleResolveBlocker(t *testing.T) {
 }
 
 func TestHandleAddDecision(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	result, err := handleAddDecision(st, context.Background(), json.RawMessage(`{"project_id":"3","title":"Use Python","reason":"Better ecosystem"}`))
 	if err != nil {
@@ -519,6 +448,7 @@ func TestHandleAddDecision(t *testing.T) {
 }
 
 func TestHandleGetBriefing(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 
 	// Full briefing
@@ -544,6 +474,7 @@ func TestHandleGetBriefing(t *testing.T) {
 }
 
 func TestHandleListSteps(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	result, err := handleListSteps(st, context.Background(), json.RawMessage(`{"project_id":"1"}`))
 	if err != nil {
@@ -564,6 +495,7 @@ func TestHandleListSteps(t *testing.T) {
 }
 
 func TestHandleListBlockers(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	result, err := handleListBlockers(st, context.Background(), json.RawMessage(`{"project_id":"1"}`))
 	if err != nil {
@@ -578,6 +510,7 @@ func TestHandleListBlockers(t *testing.T) {
 }
 
 func TestHandleListDecisions(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	result, err := handleListDecisions(st, context.Background(), json.RawMessage(`{"project_id":"1"}`))
 	if err != nil {
@@ -592,6 +525,7 @@ func TestHandleListDecisions(t *testing.T) {
 }
 
 func TestHandleListBlockers_None(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	result, err := handleListBlockers(st, context.Background(), json.RawMessage(`{"project_id":"2"}`))
 	if err != nil {
@@ -603,6 +537,7 @@ func TestHandleListBlockers_None(t *testing.T) {
 }
 
 func TestHandleStartStep_AlreadyInProgress(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	// Start a todo step (vpn-access in project #1)
 	result, err := handleStartStep(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"vpn-access"}`))
@@ -620,6 +555,7 @@ func TestHandleStartStep_AlreadyInProgress(t *testing.T) {
 }
 
 func TestHandleDoneStep_BlockedStep(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	// configure-dns has an unresolved blocker
 	_, err := handleDoneStep(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"configure-dns"}`))
@@ -631,6 +567,7 @@ func TestHandleDoneStep_BlockedStep(t *testing.T) {
 // --- Full RegisterPMTools integration test ---
 
 func TestRegisterPMTools(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	s := NewServer("pm-mcp", "0.1.0")
 	RegisterPMTools(s, st)
@@ -660,6 +597,7 @@ func TestRegisterPMTools(t *testing.T) {
 }
 
 func TestHandleListProjects_Empty(t *testing.T) {
+	t.Parallel()
 	st := store.NewFileStore(t.TempDir())
 	result, err := handleListProjects(st, context.Background(), json.RawMessage(`{}`))
 	if err != nil {
@@ -671,6 +609,7 @@ func TestHandleListProjects_Empty(t *testing.T) {
 }
 
 func TestHandleGetProject_NotFound(t *testing.T) {
+	t.Parallel()
 	st := store.NewFileStore(t.TempDir())
 	_, err := handleGetProject(st, context.Background(), json.RawMessage(`{"project_id":"1"}`))
 	if err == nil {
@@ -679,6 +618,7 @@ func TestHandleGetProject_NotFound(t *testing.T) {
 }
 
 func TestHandleAddProject_EmptyTitle(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	_, err := handleAddProject(st, context.Background(), json.RawMessage(`{"title":""}`))
 	if err == nil {
@@ -687,6 +627,7 @@ func TestHandleAddProject_EmptyTitle(t *testing.T) {
 }
 
 func TestHandleAddProject_InvalidTitle(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	_, err := handleAddProject(st, context.Background(), json.RawMessage(`{"title":"'\"\""}`))
 	if err == nil {
@@ -695,6 +636,7 @@ func TestHandleAddProject_InvalidTitle(t *testing.T) {
 }
 
 func TestHandleAddBlocker_Duplicate(t *testing.T) {
+	t.Parallel()
 	st := store.NewMockStore()
 	// Add, then duplicate
 	handleAddBlocker(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"vpn-access","title":"Test Blk"}`))

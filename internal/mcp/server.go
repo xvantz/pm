@@ -16,9 +16,18 @@ import (
 	"strings"
 )
 
+type serverState int
+
+const (
+	stateNew serverState = iota
+	stateInitialized
+)
+
 const protocolVersion = "2024-11-05"
 
 // Server is an MCP server that exposes PM tools over stdio transport.
+// It runs a single-threaded read-process-write loop and is not safe for
+// concurrent use. Run one instance per connection.
 type Server struct {
 	name    string
 	version string
@@ -53,7 +62,7 @@ func (s *Server) Run(ctx context.Context) error {
 // runWithWriter is like Run but allows specifying the output writer (for testing).
 func (s *Server) runWithWriter(ctx context.Context, w io.Writer) error {
 	r := newMessageReader(os.Stdin)
-	initialized := false
+	state := stateNew
 
 	for {
 		select {
@@ -77,7 +86,7 @@ func (s *Server) runWithWriter(ctx context.Context, w io.Writer) error {
 			continue
 		}
 
-		s.handleMessage(ctx, req, w, &initialized)
+		s.handleMessage(ctx, req, w, &state)
 	}
 }
 
@@ -97,7 +106,7 @@ type jsonrpcError struct {
 	Data    string `json:"data,omitempty"`
 }
 
-func (s *Server) handleMessage(ctx context.Context, body json.RawMessage, w io.Writer, initialized *bool) {
+func (s *Server) handleMessage(ctx context.Context, body json.RawMessage, w io.Writer, state *serverState) {
 	var msg jsonrpcMessage
 	if err := json.Unmarshal(body, &msg); err != nil {
 		sendError(w, nil, -32700, "Parse error", "")
@@ -111,17 +120,17 @@ func (s *Server) handleMessage(ctx context.Context, body json.RawMessage, w io.W
 		s.handleInitialize(w, msg.ID)
 
 	case "notifications/initialized":
-		*initialized = true
+		*state = stateInitialized
 
 	case "tools/list":
-		if !*initialized {
+		if *state != stateInitialized {
 			sendError(w, msg.ID, -32000, "Not initialized", "")
 			return
 		}
 		s.handleToolsList(w, msg.ID)
 
 	case "tools/call":
-		if !*initialized {
+		if *state != stateInitialized {
 			sendError(w, msg.ID, -32000, "Not initialized", "")
 			return
 		}
@@ -149,15 +158,7 @@ func (s *Server) handleInitialize(w io.Writer, id *int) {
 }
 
 func (s *Server) handleToolsList(w io.Writer, id *int) {
-	tools := make([]Tool, len(s.tools))
-	for i, t := range s.tools {
-		tools[i] = Tool{
-			Name:        t.Name,
-			Description: t.Description,
-			InputSchema: t.InputSchema,
-		}
-	}
-	sendResult(w, id, map[string]any{"tools": tools})
+	sendResult(w, id, map[string]any{"tools": s.tools})
 }
 
 func (s *Server) handleToolCall(ctx context.Context, w io.Writer, id *int, params json.RawMessage) {
