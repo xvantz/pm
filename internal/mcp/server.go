@@ -45,9 +45,12 @@ func (s *Server) AddTool(t Tool) {
 // Run starts the MCP stdio server loop. It reads JSON-RPC messages from
 // stdin (Content-Length framed) and writes responses to stdout.
 func (s *Server) Run() error {
-	r := newMessageReader(os.Stdin)
-	enc := json.NewEncoder(os.Stdout)
+	return s.runWithWriter(os.Stdout)
+}
 
+// runWithWriter is like Run but allows specifying the output writer (for testing).
+func (s *Server) runWithWriter(w io.Writer) error {
+	r := newMessageReader(os.Stdin)
 	initialized := false
 
 	for {
@@ -61,18 +64,17 @@ func (s *Server) Run() error {
 
 		var req json.RawMessage
 		if err := json.Unmarshal(body, &req); err != nil {
-			// Not JSON — skip
 			continue
 		}
 
-		s.handleMessage(req, enc, &initialized)
+		s.handleMessage(req, w, &initialized)
 	}
 }
 
 // jsonrpcMessage is the outer JSON-RPC 2.0 envelope.
 type jsonrpcMessage struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      *int            `json:"id,omitempty"`
+	ID      *int            `json:"id"`
 	Method  string          `json:"method,omitempty"`
 	Params  json.RawMessage `json:"params,omitempty"`
 	Result  json.RawMessage `json:"result,omitempty"`
@@ -85,46 +87,44 @@ type jsonrpcError struct {
 	Data    string `json:"data,omitempty"`
 }
 
-func (s *Server) handleMessage(body json.RawMessage, enc *json.Encoder, initialized *bool) {
+func (s *Server) handleMessage(body json.RawMessage, w io.Writer, initialized *bool) {
 	var msg jsonrpcMessage
 	if err := json.Unmarshal(body, &msg); err != nil {
-		sendError(enc, nil, -32700, "Parse error", "")
+		sendError(w, nil, -32700, "Parse error", "")
 		return
 	}
 
-	// Notifications have no ID
 	isNotification := msg.ID == nil
 
 	switch msg.Method {
 	case "initialize":
-		s.handleInitialize(enc, msg.ID)
+		s.handleInitialize(w, msg.ID)
 
 	case "notifications/initialized":
 		*initialized = true
-		// Notifications don't have responses
 
 	case "tools/list":
 		if !*initialized {
-			sendError(enc, msg.ID, -32000, "Not initialized", "")
+			sendError(w, msg.ID, -32000, "Not initialized", "")
 			return
 		}
-		s.handleToolsList(enc, msg.ID)
+		s.handleToolsList(w, msg.ID)
 
 	case "tools/call":
 		if !*initialized {
-			sendError(enc, msg.ID, -32000, "Not initialized", "")
+			sendError(w, msg.ID, -32000, "Not initialized", "")
 			return
 		}
-		s.handleToolCall(enc, msg.ID, msg.Params)
+		s.handleToolCall(w, msg.ID, msg.Params)
 
 	default:
 		if !isNotification {
-			sendError(enc, msg.ID, -32601, fmt.Sprintf("Method not found: %s", msg.Method), "")
+			sendError(w, msg.ID, -32601, fmt.Sprintf("Method not found: %s", msg.Method), "")
 		}
 	}
 }
 
-func (s *Server) handleInitialize(enc *json.Encoder, id *int) {
+func (s *Server) handleInitialize(w io.Writer, id *int) {
 	result := map[string]any{
 		"protocolVersion": protocolVersion,
 		"capabilities": map[string]any{
@@ -135,29 +135,28 @@ func (s *Server) handleInitialize(enc *json.Encoder, id *int) {
 			"version": s.version,
 		},
 	}
-	sendResult(enc, id, result)
+	sendResult(w, id, result)
 }
 
-func (s *Server) handleToolsList(enc *json.Encoder, id *int) {
+func (s *Server) handleToolsList(w io.Writer, id *int) {
 	tools := make([]Tool, len(s.tools))
 	for i, t := range s.tools {
-		// Don't expose the handler in the JSON response
 		tools[i] = Tool{
 			Name:        t.Name,
 			Description: t.Description,
 			InputSchema: t.InputSchema,
 		}
 	}
-	sendResult(enc, id, map[string]any{"tools": tools})
+	sendResult(w, id, map[string]any{"tools": tools})
 }
 
-func (s *Server) handleToolCall(enc *json.Encoder, id *int, params json.RawMessage) {
+func (s *Server) handleToolCall(w io.Writer, id *int, params json.RawMessage) {
 	var call struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
 	}
 	if err := json.Unmarshal(params, &call); err != nil {
-		sendError(enc, id, -32602, "Invalid params", err.Error())
+		sendError(w, id, -32602, "Invalid params", err.Error())
 		return
 	}
 
@@ -165,10 +164,10 @@ func (s *Server) handleToolCall(enc *json.Encoder, id *int, params json.RawMessa
 		if t.Name == call.Name {
 			text, err := t.Handler(context.Background(), call.Arguments)
 			if err != nil {
-				sendError(enc, id, -32603, err.Error(), "")
+				sendError(w, id, -32603, err.Error(), "")
 				return
 			}
-			sendResult(enc, id, map[string]any{
+			sendResult(w, id, map[string]any{
 				"content": []map[string]string{
 					{"type": "text", "text": text},
 				},
@@ -177,20 +176,20 @@ func (s *Server) handleToolCall(enc *json.Encoder, id *int, params json.RawMessa
 		}
 	}
 
-	sendError(enc, id, -32602, fmt.Sprintf("Unknown tool: %s", call.Name), "")
+	sendError(w, id, -32602, fmt.Sprintf("Unknown tool: %s", call.Name), "")
 }
 
-func sendResult(enc *json.Encoder, id *int, result any) {
+func sendResult(w io.Writer, id *int, result any) {
 	resp := jsonrpcMessage{
 		JSONRPC: "2.0",
 		ID:      id,
 	}
 	respBytes, _ := json.Marshal(result)
 	resp.Result = respBytes
-	writeMessage(enc, resp)
+	writeMessage(w, resp)
 }
 
-func sendError(enc *json.Encoder, id *int, code int, message, data string) {
+func sendError(w io.Writer, id *int, code int, message, data string) {
 	resp := jsonrpcMessage{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -200,17 +199,16 @@ func sendError(enc *json.Encoder, id *int, code int, message, data string) {
 			Data:    data,
 		},
 	}
-	writeMessage(enc, resp)
+	writeMessage(w, resp)
 }
 
-func writeMessage(enc *json.Encoder, msg jsonrpcMessage) {
+func writeMessage(w io.Writer, msg jsonrpcMessage) {
 	data, err := json.Marshal(msg)
 	if err != nil {
 		slog.Error("mcp: marshal response", "error", err)
 		return
 	}
-	// MCP stdio transport: Content-Length header + blank line + JSON body
-	fmt.Fprintf(os.Stdout, "Content-Length: %d\r\n\r\n%s", len(data), data)
+	fmt.Fprintf(w, "Content-Length: %d\r\n\r\n%s", len(data), data)
 }
 
 // messageReader reads MCP stdio messages with Content-Length framing.
@@ -238,7 +236,6 @@ func (mr *messageReader) readMessage() ([]byte, error) {
 				slog.Warn("mcp: bad Content-Length header", "line", line)
 			}
 		}
-		// Ignore other headers (Content-Type etc.)
 	}
 	if contentLength == 0 {
 		return nil, fmt.Errorf("mcp: empty content length")

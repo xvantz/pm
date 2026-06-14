@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/xvantz/pm/internal/briefing"
 	"github.com/xvantz/pm/internal/store"
 	"github.com/xvantz/pm/internal/types"
@@ -307,15 +308,16 @@ func handleAddProject(st store.Store, args json.RawMessage) (string, error) {
 		return "", fmt.Errorf("title is required")
 	}
 
-	id := slug(params.Title)
-	if id == "" {
-		return "", fmt.Errorf("invalid title: %q", params.Title)
-	}
-
+	id := uuid.Must(uuid.NewV7()).String()
 	now := types.NowISO()
 	nextNum, err := st.NextNumber()
 	if err != nil {
 		return "", fmt.Errorf("next number: %w", err)
+	}
+
+	titleSlug := slug(params.Title)
+	if titleSlug == "" {
+		return "", fmt.Errorf("invalid title: %q", params.Title)
 	}
 
 	p := types.Project{
@@ -329,18 +331,12 @@ func handleAddProject(st store.Store, args json.RawMessage) (string, error) {
 		UpdatedAt: now,
 	}
 
-	// Check if slug already exists
-	existing, err := st.GetProject(id)
-	if err == nil && existing != nil {
-		return "", fmt.Errorf("project %q already exists (slug collision)", id)
-	}
-
 	if err := st.SaveProject(p); err != nil {
 		return "", fmt.Errorf("save project: %w", err)
 	}
 
-	return fmt.Sprintf("Project #%d %q created.\nID: %s\nSlug: %s\n\nNext: pm add step %d \"...\"",
-		p.Number, p.Title, p.ID, p.ID, p.Number), nil
+	return fmt.Sprintf("Project #%d %q created.\nID: %s\n\nNext: pm add step %d \"...\"",
+		p.Number, p.Title, p.ID, p.Number), nil
 }
 
 func handleAddStep(st store.Store, args json.RawMessage) (string, error) {

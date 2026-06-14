@@ -1,32 +1,21 @@
 package mcp
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
-// slug generates a filesystem-safe identifier from a title.
-// It keeps the full string — no length truncation.
+// slug converts a title to a filesystem-safe identifier.
+// Must match the behavior of internal/cli/slug.go.
 func slug(title string) string {
-	var b strings.Builder
-	prevDash := true
-	for _, r := range strings.TrimSpace(title) {
-		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r >= 'а' && r <= 'я' {
-			b.WriteRune(r)
-			prevDash = false
-		} else if r >= 'A' && r <= 'Z' {
-			b.WriteRune(r + 32) // to lowercase
-			prevDash = false
-		} else if r >= 'А' && r <= 'Я' {
-			b.WriteRune(r + 32) // Cyrillic uppercase → lowercase
-			prevDash = false
-		} else {
-			if !prevDash {
-				b.WriteRune('-')
-				prevDash = true
-			}
-		}
-	}
-	result := strings.Trim(b.String(), "-")
-	if result == "" {
-		return ""
-	}
-	return result
+	s := strings.ToLower(title)
+	s = strings.NewReplacer(
+		" ", "-", "_", "-", "/", "-", "\\", "-",
+		".", "-", ":", "-", ",", "-",
+		"'", "", "\"", "", "(", "", ")", "", "`", "",
+	).Replace(s)
+	re := regexp.MustCompile(`-{2,}`)
+	s = re.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	return s
 }
