@@ -11,6 +11,8 @@ type Store interface {
 	ResolveProject(ref string) (*types.ProjectData, error)
 	// NextNumber returns the next sequential project number.
 	NextNumber() (int, error)
+	// AdvanceNextNumber increments the next-number counter after a project is saved.
+	AdvanceNextNumber() error
 	// GetSteps returns all steps for a project.
 	GetSteps(projectID string) ([]types.Step, error)
 	// GetBlockers returns all blockers for a project.
@@ -25,8 +27,14 @@ type Store interface {
 	SaveBlocker(b types.Blocker) error
 	// SaveDecision creates or updates a decision.
 	SaveDecision(d types.Decision) error
-	// DeleteProject removes a project and all its data.
+	// DeleteProject moves a project to .trash.
 	DeleteProject(id string) error
+	// TrashList returns the names of items in the trash.
+	TrashList() ([]string, error)
+	// TrashRestore restores a trashed project by its trash name.
+	TrashRestore(trashName string) error
+	// TrashClean permanently removes all trashed items.
+	TrashClean() error
 	// DeleteStep removes a step and its blockers.
 	DeleteStep(projectID, stepID string) error
 	// DeleteBlocker removes a blocker from a step.

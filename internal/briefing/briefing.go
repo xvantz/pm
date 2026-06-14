@@ -1,6 +1,7 @@
 package briefing
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -70,6 +71,7 @@ type Recommendation struct {
 }
 
 type Config struct {
+	Context       context.Context // optional, checked before long operations
 	Store         store.Store
 	Date          string // ISO date to generate briefing for (default: today)
 	FilterProject string // project ref (number or UUID) for single-project briefing
@@ -79,6 +81,14 @@ func Generate(cfg Config) (*Briefing, error) {
 	date := cfg.Date
 	if date == "" {
 		date = time.Now().UTC().Format(dateFormat)
+	}
+
+	if cfg.Context != nil {
+		select {
+		case <-cfg.Context.Done():
+			return nil, cfg.Context.Err()
+		default:
+		}
 	}
 
 	projects, err := cfg.Store.ListProjects()

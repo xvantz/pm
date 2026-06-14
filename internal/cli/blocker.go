@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/xvantz/pm/internal/slug"
 	"github.com/xvantz/pm/internal/types"
 )
 
@@ -61,7 +62,7 @@ func cmdBlockerAdd(args []string) error {
 		return fmt.Errorf("step %q not found in project #%d", stepSlug, pd.Project.Number)
 	}
 
-	id := slug(title)
+	id := slug.Of(title)
 	if id == "" {
 		return fmt.Errorf("invalid blocker title: %q", title)
 	}
@@ -81,6 +82,7 @@ func cmdBlockerAdd(args []string) error {
 		ProjectID: pd.Project.ID,
 		StepID:    stepSlug,
 		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
 	if err := st.SaveBlocker(blocker); err != nil {
