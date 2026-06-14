@@ -17,6 +17,9 @@ func openStore() (store.Store, error) {
 }
 
 func defaultProjectsDir() string {
+	if dir := os.Getenv("PM_DIR"); dir != "" {
+		return dir
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "./pm/projects"

@@ -144,6 +144,7 @@ func cmdBlockerResolve(args []string) error {
 
 	// Resolve the blocker in-place (updates pd.Steps so subsequent checks are correct)
 	pd.Steps[stepIdx].Blockers[blockerIdx].Status = types.BlockerResolved
+	pd.Steps[stepIdx].Blockers[blockerIdx].UpdatedAt = types.NowISO()
 
 	if err := st.SaveBlocker(pd.Steps[stepIdx].Blockers[blockerIdx]); err != nil {
 		return fmt.Errorf("save blocker: %w", err)

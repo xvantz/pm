@@ -6,6 +6,8 @@ import (
 	"os"
 )
 
+const Version = "0.1.0"
+
 func Run(args []string) error {
 	if len(args) < 1 {
 		PrintUsage()
@@ -14,6 +16,9 @@ func Run(args []string) error {
 
 	cmd := args[0]
 	switch cmd {
+	case "version", "--version", "-v":
+		fmt.Printf("pm version %s\n", Version)
+		return nil
 	case "briefing":
 		return cmdBriefing(args[1:])
 	case "init":

@@ -48,7 +48,6 @@ type Step struct {
 	ProjectID string     `yaml:"project_id" json:"project_id"`
 	Blockers  []Blocker  `yaml:"blockers,omitempty" json:"blockers,omitempty"`
 	Artifacts []string   `yaml:"artifacts,omitempty" json:"artifacts,omitempty"`
-	Deps      []string   `yaml:"deps,omitempty" json:"deps,omitempty"`
 	CreatedAt string     `yaml:"created_at,omitempty" json:"created_at,omitempty"`
 	UpdatedAt string     `yaml:"updated_at,omitempty" json:"updated_at,omitempty"`
 }
@@ -61,6 +60,7 @@ type Blocker struct {
 	ProjectID string         `yaml:"project_id" json:"project_id"`
 	StepID    string         `yaml:"step_id" json:"step_id"`
 	CreatedAt string         `yaml:"created_at,omitempty" json:"created_at,omitempty"`
+	UpdatedAt string         `yaml:"updated_at,omitempty" json:"updated_at,omitempty"`
 }
 
 type Decision struct {

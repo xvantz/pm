@@ -54,12 +54,8 @@ func cmdDecisionAdd(args []string) error {
 		return fmt.Errorf("invalid decision title: %q", title)
 	}
 
-	// Check for duplicate slug in this project
-	existing, err := st.GetDecisions(pd.Project.ID)
-	if err != nil {
-		return fmt.Errorf("get decisions: %w", err)
-	}
-	for _, d := range existing {
+	// Check for duplicate slug in this project (pd already has decisions loaded)
+	for _, d := range pd.Decisions {
 		if d.ID == id {
 			return fmt.Errorf("decision %q already exists in project #%d", id, pd.Project.Number)
 		}

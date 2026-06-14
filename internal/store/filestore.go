@@ -82,7 +82,20 @@ func (s *FileStore) ResolveProject(ref string) (*types.ProjectData, error) {
 		}
 		for _, p := range projects {
 			if p.Number == n {
-				return s.GetProject(p.ID)
+				// Already have project metadata from ListProjects — avoid re-read
+				steps, err := s.GetSteps(p.ID)
+				if err != nil {
+					steps = nil
+				}
+				decisions, err := s.GetDecisions(p.ID)
+				if err != nil {
+					decisions = nil
+				}
+				return &types.ProjectData{
+					Project:   p,
+					Steps:     steps,
+					Decisions: decisions,
+				}, nil
 			}
 		}
 		return nil, fmt.Errorf("project #%d not found", n)
