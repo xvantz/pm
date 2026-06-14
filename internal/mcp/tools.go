@@ -307,17 +307,15 @@ func handleAddProject(st store.Store, args json.RawMessage) (string, error) {
 	if params.Title == "" {
 		return "", fmt.Errorf("title is required")
 	}
+	if slug(params.Title) == "" {
+		return "", fmt.Errorf("invalid title: %q", params.Title)
+	}
 
 	id := uuid.Must(uuid.NewV7()).String()
 	now := types.NowISO()
 	nextNum, err := st.NextNumber()
 	if err != nil {
 		return "", fmt.Errorf("next number: %w", err)
-	}
-
-	titleSlug := slug(params.Title)
-	if titleSlug == "" {
-		return "", fmt.Errorf("invalid title: %q", params.Title)
 	}
 
 	p := types.Project{
@@ -441,14 +439,14 @@ func handleDoneStep(st store.Store, args json.RawMessage) (string, error) {
 
 	result, err := advanceStep(st, params.ProjectID, params.StepID, types.StepDone,
 		func(s types.Step) error {
+			if s.Status != types.StepReview {
+				return fmt.Errorf("step %q is %s, must be in review before done", params.StepID, s.Status)
+			}
 			// Check for unresolved blockers
 			for _, b := range s.Blockers {
 				if b.Status == types.BlockerActive || b.Status == types.BlockerWaiting {
 					return fmt.Errorf("step %q has unresolved blockers — resolve them first", params.StepID)
 				}
-			}
-			if s.Status != types.StepReview {
-				return fmt.Errorf("step %q is %s, must be in review before done", params.StepID, s.Status)
 			}
 			return nil
 		})
@@ -590,10 +588,16 @@ func handleResolveBlocker(st store.Store, args json.RawMessage) (string, error) 
 		return "", fmt.Errorf("blocker %q not found in step %q", params.BlockerID, params.StepID)
 	}
 
-	pd.Steps[stepIdx].Blockers[blockerIdx].Status = types.BlockerResolved
-	pd.Steps[stepIdx].Blockers[blockerIdx].UpdatedAt = types.NowISO()
+	blocker := &pd.Steps[stepIdx].Blockers[blockerIdx]
+	if blocker.Status == types.BlockerResolved {
+		return fmt.Sprintf("Blocker %q is already resolved in step %q (project #%d).",
+			params.BlockerID, params.StepID, pd.Project.Number), nil
+	}
 
-	if err := st.SaveBlocker(pd.Steps[stepIdx].Blockers[blockerIdx]); err != nil {
+	blocker.Status = types.BlockerResolved
+	blocker.UpdatedAt = types.NowISO()
+
+	if err := st.SaveBlocker(*blocker); err != nil {
 		return "", fmt.Errorf("save blocker: %w", err)
 	}
 
@@ -673,7 +677,7 @@ func handleGetBriefing(st store.Store, args json.RawMessage) (string, error) {
 		ProjectID string `json:"project_id,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		// Params are optional, proceed with defaults
+		slog.Warn("get_briefing: ignoring invalid params", "error", err)
 	}
 
 	cfg := briefing.Config{
@@ -773,10 +777,7 @@ func handleListDecisions(st store.Store, args json.RawMessage) (string, error) {
 		return "", err
 	}
 
-	decisions, err := st.GetDecisions(pd.Project.ID)
-	if err != nil {
-		return "", err
-	}
+	decisions := pd.Decisions
 
 	if len(decisions) == 0 {
 		return fmt.Sprintf("No decisions in project #%d (%s).", pd.Project.Number, pd.Project.Title), nil

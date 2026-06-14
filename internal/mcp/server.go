@@ -64,6 +64,7 @@ func (s *Server) runWithWriter(w io.Writer) error {
 
 		var req json.RawMessage
 		if err := json.Unmarshal(body, &req); err != nil {
+			sendError(w, nil, -32700, "Parse error", "")
 			continue
 		}
 

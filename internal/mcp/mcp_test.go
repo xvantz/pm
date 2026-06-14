@@ -635,21 +635,22 @@ func TestRegisterPMTools(t *testing.T) {
 	s := NewServer("pm-mcp", "0.1.0")
 	RegisterPMTools(s, st)
 
-	if len(s.tools) != 14 {
-		t.Fatalf("got %d tools, want 14", len(s.tools))
-	}
-
-	// Check all tool names
-	names := make(map[string]bool)
-	for _, tool := range s.tools {
-		names[tool.Name] = true
-	}
 	expected := []string{
 		"list_projects", "get_project", "add_project", "add_step",
 		"start_step", "review_step", "done_step",
 		"add_blocker", "resolve_blocker", "add_decision",
 		"get_briefing",
 		"list_steps", "list_blockers", "list_decisions",
+	}
+
+	if len(s.tools) != len(expected) {
+		t.Fatalf("got %d tools, want %d", len(s.tools), len(expected))
+	}
+
+	// Check all tool names
+	names := make(map[string]bool)
+	for _, tool := range s.tools {
+		names[tool.Name] = true
 	}
 	for _, name := range expected {
 		if !names[name] {
