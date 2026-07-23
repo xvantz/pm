@@ -18,7 +18,7 @@ func openStore() (store.Store, error) {
 
 func defaultProjectsDir() string {
 	if dir := os.Getenv("PM_DIR"); dir != "" {
-		return dir
+		return filepath.Join(dir, "projects")
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
