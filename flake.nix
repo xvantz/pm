@@ -77,6 +77,7 @@
 
           config = mkIf cfg.enable {
             environment.systemPackages = [ cfg.package ];
+            environment.sessionVariables.PM_DIR = cfg.dataDir;
           };
         };
     };
