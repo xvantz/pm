@@ -35,10 +35,7 @@
               "-X main.Version=0.1.0"
             ];
 
-            # After first build error with the fake hash, run:
-            #   nix build .#pm 2>&1 | grep "got:" | head -1
-            # and paste the hash here.
-            vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+            vendorHash = "sha256-4HpSNp8hmMkcMeO9SGuq8hqQq6tvU1mJO2Nfvt50amQ=";
 
             meta = {
               description = "Project Memory — долговременная память проектов";
@@ -67,7 +64,7 @@
             package = mkOption {
               type = types.package;
               default = self.packages.${system}.pm;
-              defaultText = literalExpression "self.packages.\${pkgs.stdenv.hostPlatform.system}.pm";
+              defaultText = literalExpression "self.packages.${pkgs.stdenv.hostPlatform.system}.pm";
               description = "pm package to use";
             };
 
