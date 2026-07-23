@@ -78,7 +78,7 @@
           config = mkIf cfg.enable {
             environment.systemPackages = [ cfg.package ];
             environment.sessionVariables.PM_DIR = cfg.dataDir;
-            environment.extraInit = ''
+            environment.interactiveShellInit = ''
               export PM_DIR="${cfg.dataDir}"
             '';
           };
