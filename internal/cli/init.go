@@ -13,12 +13,15 @@ func cmdInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	_ = fs.Parse(args)
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("get current dir: %w", err)
+	pmDir := os.Getenv("PM_DIR")
+	if pmDir == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("get current dir: %w", err)
+		}
+		pmDir = filepath.Join(cwd, "pm")
 	}
 
-	pmDir := filepath.Join(cwd, "pm")
 	projectsDir := filepath.Join(pmDir, "projects")
 
 	for _, d := range []string{pmDir, projectsDir} {
@@ -38,8 +41,7 @@ func cmdInit(args []string) error {
 		slog.Warn("could not create .gitignore", "error", err)
 	}
 
-	fmt.Printf("PM initialized at %s\n", pmDir)
-	fmt.Println()
+	fmt.Printf("PM initialized at %s\n\n", pmDir)
 	fmt.Println("  Structure:")
 	fmt.Println("    pm/")
 	fmt.Println("    ├── .git/")
