@@ -78,6 +78,9 @@
           config = mkIf cfg.enable {
             environment.systemPackages = [ cfg.package ];
             environment.sessionVariables.PM_DIR = cfg.dataDir;
+            environment.extraInit = ''
+              export PM_DIR="${cfg.dataDir}"
+            '';
           };
         };
     };
