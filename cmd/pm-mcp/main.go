@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
@@ -21,7 +22,10 @@ import (
 var Version = "dev"
 
 func main() {
-	root := projectsDir()
+	dirFlag := flag.String("dir", "", "PM root directory (overrides PM_DIR env)")
+	flag.Parse()
+
+	root := projectsDir(*dirFlag)
 
 	info, err := os.Stat(root)
 	if err != nil || !info.IsDir() {
@@ -44,7 +48,10 @@ func main() {
 	}
 }
 
-func projectsDir() string {
+func projectsDir(dirFlag string) string {
+	if dirFlag != "" {
+		return filepath.Join(dirFlag, "projects")
+	}
 	if dir := os.Getenv("PM_DIR"); dir != "" {
 		return filepath.Join(dir, "projects")
 	}
