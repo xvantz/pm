@@ -36,9 +36,9 @@ type Server struct {
 
 // Tool defines an MCP tool: its schema and handler.
 type Tool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"inputSchema"`
+	Name        string                    `json:"name"`
+	Description string                    `json:"description"`
+	InputSchema json.RawMessage           `json:"inputSchema"`
 	Handler     func(context.Context, json.RawMessage) (string, error) `json:"-"`
 }
 
@@ -80,7 +80,7 @@ func (s *Server) runWithWriter(ctx context.Context, w io.Writer) error {
 			continue
 		}
 
-		var req json.RawMessage
+		var req jsonrpcMessage
 		if err := json.Unmarshal(body, &req); err != nil {
 			sendError(w, nil, -32700, "Parse error", "")
 			continue
@@ -106,13 +106,7 @@ type jsonrpcError struct {
 	Data    string `json:"data,omitempty"`
 }
 
-func (s *Server) handleMessage(ctx context.Context, body json.RawMessage, w io.Writer, state *serverState) {
-	var msg jsonrpcMessage
-	if err := json.Unmarshal(body, &msg); err != nil {
-		sendError(w, nil, -32700, "Parse error", "")
-		return
-	}
-
+func (s *Server) handleMessage(ctx context.Context, msg jsonrpcMessage, w io.Writer, state *serverState) {
 	isNotification := msg.ID == nil
 
 	switch msg.Method {
@@ -223,7 +217,21 @@ func writeMessage(w io.Writer, msg jsonrpcMessage) {
 		slog.Error("mcp: marshal response", "error", err)
 		return
 	}
-	fmt.Fprintf(w, "Content-Length: %d\r\n\r\n%s", len(data), data)
+	// Write Content-Length framed message followed by a newline.
+	// The newline ensures the output is flushed to the peer when stdout
+	// is connected to a pipe (Go's default pipe buffer may delay output
+	// that ends without a line terminator).
+	_, err = fmt.Fprintf(w, "Content-Length: %d\r\n\r\n%s\n", len(data), data)
+	if err != nil {
+		slog.Error("mcp: write error", "error", err)
+	}
+	// Flush if the writer supports it (e.g. *os.File or bufio.Writer).
+	if flusher, ok := w.(interface{ Flush() error }); ok {
+		_ = flusher.Flush()
+	}
+	if syncer, ok := w.(interface{ Sync() error }); ok {
+		_ = syncer.Sync()
+	}
 }
 
 // messageReader reads MCP stdio messages with Content-Length framing.
