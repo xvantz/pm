@@ -36,9 +36,9 @@ type Server struct {
 
 // Tool defines an MCP tool: its schema and handler.
 type Tool struct {
-	Name        string                    `json:"name"`
-	Description string                    `json:"description"`
-	InputSchema json.RawMessage           `json:"inputSchema"`
+	Name        string                                         `json:"name"`
+	Description string                                         `json:"description"`
+	InputSchema json.RawMessage                                `json:"inputSchema"`
 	Handler     func(context.Context, json.RawMessage) (string, error) `json:"-"`
 }
 
@@ -217,20 +217,18 @@ func writeMessage(w io.Writer, msg jsonrpcMessage) {
 		slog.Error("mcp: marshal response", "error", err)
 		return
 	}
-	// Write Content-Length framed message followed by a newline.
-	// The newline ensures the output is flushed to the peer when stdout
-	// is connected to a pipe (Go's default pipe buffer may delay output
-	// that ends without a line terminator).
-	_, err = fmt.Fprintf(w, "Content-Length: %d\r\n\r\n%s\n", len(data), data)
+	_, err = fmt.Fprintf(w, "Content-Length: %d\r\n\r\n%s", len(data), data)
 	if err != nil {
 		slog.Error("mcp: write error", "error", err)
+		return
 	}
-	// Flush if the writer supports it (e.g. *os.File or bufio.Writer).
-	if flusher, ok := w.(interface{ Flush() error }); ok {
-		_ = flusher.Flush()
-	}
-	if syncer, ok := w.(interface{ Sync() error }); ok {
-		_ = syncer.Sync()
+	// Force-flush the writer. When stdout is connected to a pipe (as in
+	// stdio MCP transport), pipe buffers can delay the output. Flushing
+	// ensures the client receives the response immediately.
+	if f, ok := w.(*os.File); ok {
+		_ = f.Sync()
+	} else if f, ok := w.(interface{ Flush() error }); ok {
+		_ = f.Flush()
 	}
 }
 
