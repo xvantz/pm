@@ -201,10 +201,10 @@ func writeMessage(w io.Writer, msg jsonrpcMessage) {
 		slog.Error("mcp: marshal response", "error", err)
 		return
 	}
-	// MCP stdio transport uses newline-delimited JSON.
-	// Each message is a single JSON line followed by \n.
-	// Content-Length header is optional; SDK ignores it for stdio.
-	_, err = fmt.Fprintf(w, "Content-Length: %d\r\n\r\n%s\n", len(data), data)
+	// MCP stdio transport: each response is a single JSON line followed by \n.
+	// Content-Length headers are NOT sent — the MCP Python SDK reads stdout
+	// line-by-line and parses each line as JSON. Headers would be misinterpreted.
+	_, err = fmt.Fprintf(w, "%s\n", data)
 	if err != nil {
 		slog.Error("mcp: write error", "error", err)
 		return
@@ -231,14 +231,14 @@ func newMessageReader(r io.Reader) *messageReader {
 }
 
 func (mr *messageReader) readMessage() ([]byte, error) {
-	// Try to peek — if the first bytes look like raw JSON (starts with {),
-	// read a single line as a newline-delimited message.
+	// Peek at the first byte to detect message format.
 	peek, err := mr.reader.Peek(1)
 	if err != nil {
 		return nil, err
 	}
 
-	// Newline-delimited JSON mode (used by MCP Python SDK)
+	// Newline-delimited JSON mode (used by MCP Python SDK).
+	// A line that starts with '{' is raw JSON.
 	if peek[0] == '{' {
 		line, err := mr.reader.ReadString('\n')
 		if err != nil {
@@ -247,7 +247,7 @@ func (mr *messageReader) readMessage() ([]byte, error) {
 		return []byte(strings.TrimRight(line, "\r\n")), nil
 	}
 
-	// Content-Length framed mode (used by some clients and tests)
+	// Content-Length framed mode (used by some clients and tests).
 	contentLength := 0
 	for {
 		line, err := mr.reader.ReadString('\n')
