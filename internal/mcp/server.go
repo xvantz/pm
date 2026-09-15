@@ -26,8 +26,6 @@ const (
 const protocolVersion = "2024-11-05"
 
 // Server is an MCP server that exposes PM tools over stdio transport.
-// It runs a single-threaded read-process-write loop and is not safe for
-// concurrent use. Run one instance per connection.
 type Server struct {
 	name    string
 	version string
@@ -36,30 +34,25 @@ type Server struct {
 
 // Tool defines an MCP tool: its schema and handler.
 type Tool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"inputSchema"`
+	Name        string                                         `json:"name"`
+	Description string                                         `json:"description"`
+	InputSchema json.RawMessage                                `json:"inputSchema"`
 	Handler     func(context.Context, json.RawMessage) (string, error) `json:"-"`
 }
 
-// NewServer creates a new MCP server.
 func NewServer(name, version string) *Server {
 	return &Server{name: name, version: version}
 }
 
-// AddTool registers an MCP tool.
 func (s *Server) AddTool(t Tool) {
 	s.tools = append(s.tools, t)
 }
 
-// Run starts the MCP stdio server loop. It reads JSON-RPC messages from
-// stdin (Content-Length framed) and writes responses to stdout.
-// The context controls server lifecycle: cancel it for graceful shutdown.
+// Run starts the MCP stdio server loop.
 func (s *Server) Run(ctx context.Context) error {
 	return s.runWithWriter(ctx, os.Stdout)
 }
 
-// runWithWriter is like Run but allows specifying the output writer (for testing).
 func (s *Server) runWithWriter(ctx context.Context, w io.Writer) error {
 	r := newMessageReader(os.Stdin)
 	state := stateNew
@@ -80,7 +73,7 @@ func (s *Server) runWithWriter(ctx context.Context, w io.Writer) error {
 			continue
 		}
 
-		var req json.RawMessage
+		var req jsonrpcMessage
 		if err := json.Unmarshal(body, &req); err != nil {
 			sendError(w, nil, -32700, "Parse error", "")
 			continue
@@ -90,7 +83,6 @@ func (s *Server) runWithWriter(ctx context.Context, w io.Writer) error {
 	}
 }
 
-// jsonrpcMessage is the outer JSON-RPC 2.0 envelope.
 type jsonrpcMessage struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      *int            `json:"id"`
@@ -106,13 +98,7 @@ type jsonrpcError struct {
 	Data    string `json:"data,omitempty"`
 }
 
-func (s *Server) handleMessage(ctx context.Context, body json.RawMessage, w io.Writer, state *serverState) {
-	var msg jsonrpcMessage
-	if err := json.Unmarshal(body, &msg); err != nil {
-		sendError(w, nil, -32700, "Parse error", "")
-		return
-	}
-
+func (s *Server) handleMessage(ctx context.Context, msg jsonrpcMessage, w io.Writer, state *serverState) {
 	isNotification := msg.ID == nil
 
 	switch msg.Method {
@@ -191,10 +177,7 @@ func (s *Server) handleToolCall(ctx context.Context, w io.Writer, id *int, param
 }
 
 func sendResult(w io.Writer, id *int, result any) {
-	resp := jsonrpcMessage{
-		JSONRPC: "2.0",
-		ID:      id,
-	}
+	resp := jsonrpcMessage{JSONRPC: "2.0", ID: id}
 	respBytes, err := json.Marshal(result)
 	if err != nil {
 		slog.Error("mcp: marshal result", "error", err)
@@ -206,13 +189,8 @@ func sendResult(w io.Writer, id *int, result any) {
 
 func sendError(w io.Writer, id *int, code int, message, data string) {
 	resp := jsonrpcMessage{
-		JSONRPC: "2.0",
-		ID:      id,
-		Error: &jsonrpcError{
-			Code:    code,
-			Message: message,
-			Data:    data,
-		},
+		JSONRPC: "2.0", ID: id,
+		Error: &jsonrpcError{Code: code, Message: message, Data: data},
 	}
 	writeMessage(w, resp)
 }
@@ -223,12 +201,29 @@ func writeMessage(w io.Writer, msg jsonrpcMessage) {
 		slog.Error("mcp: marshal response", "error", err)
 		return
 	}
-	fmt.Fprintf(w, "Content-Length: %d\r\n\r\n%s", len(data), data)
+	// MCP stdio transport: each response is a single JSON line followed by \n.
+	// Content-Length headers are NOT sent — the MCP Python SDK reads stdout
+	// line-by-line and parses each line as JSON. Headers would be misinterpreted.
+	_, err = fmt.Fprintf(w, "%s\n", data)
+	if err != nil {
+		slog.Error("mcp: write error", "error", err)
+		return
+	}
+	// Force-flush when stdout is a pipe.
+	if f, ok := w.(*os.File); ok {
+		_ = f.Sync()
+	} else if f, ok := w.(interface{ Flush() error }); ok {
+		_ = f.Flush()
+	}
 }
 
-// messageReader reads MCP stdio messages with Content-Length framing.
+// messageReader reads MCP stdio messages.
+// Compatible with both:
+//   - Content-Length framed: Content-Length: N\r\n\r\n<N bytes>
+//   - Newline-delimited JSON: {"jsonrpc":"2.0",...}\n
 type messageReader struct {
 	reader *bufio.Reader
+	bodyBuf []byte
 }
 
 func newMessageReader(r io.Reader) *messageReader {
@@ -236,6 +231,23 @@ func newMessageReader(r io.Reader) *messageReader {
 }
 
 func (mr *messageReader) readMessage() ([]byte, error) {
+	// Peek at the first byte to detect message format.
+	peek, err := mr.reader.Peek(1)
+	if err != nil {
+		return nil, err
+	}
+
+	// Newline-delimited JSON mode (used by MCP Python SDK).
+	// A line that starts with '{' is raw JSON.
+	if peek[0] == '{' {
+		line, err := mr.reader.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		return []byte(strings.TrimRight(line, "\r\n")), nil
+	}
+
+	// Content-Length framed mode (used by some clients and tests).
 	contentLength := 0
 	for {
 		line, err := mr.reader.ReadString('\n')
@@ -255,6 +267,7 @@ func (mr *messageReader) readMessage() ([]byte, error) {
 	if contentLength == 0 {
 		return nil, fmt.Errorf("mcp: empty content length")
 	}
+
 	body := make([]byte, contentLength)
 	if _, err := io.ReadFull(mr.reader, body); err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
