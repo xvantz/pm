@@ -23,7 +23,13 @@ var Version = "dev"
 
 func main() {
 	dirFlag := flag.String("dir", "", "PM root directory (overrides PM_DIR env)")
+	versionFlag := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
+
+	if *versionFlag {
+		fmt.Printf("pm-mcp version %s\n", Version)
+		return
+	}
 
 	root := projectsDir(*dirFlag)
 

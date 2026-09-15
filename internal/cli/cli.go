@@ -6,7 +6,8 @@ import (
 	"os"
 )
 
-const Version = "0.1.0"
+// Version is set by -ldflags during build (cmd/pm/main.go); fallback for dev.
+var Version = "dev"
 
 func Run(args []string) error {
 	if len(args) < 1 {

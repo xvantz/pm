@@ -4,12 +4,12 @@
 
 ### Requirement: Launch contract
 
-Hermes SHALL launch `pm-mcp` as `${config.services.pm.package}/bin/pm-mcp --dir ${config.services.pm.dataDir}` with no hardcoded paths in `hermes.nix`. `PM_DIR` env remains a dev-only override. The flake MUST build from a clean checkout (`vendorHash` real, no placeholders).
+Hermes SHALL launch `pm-mcp` as `${config.services.pm.package}/bin/pm-mcp --dir ${config.services.pm.containerDataDir}` with no hardcoded paths in `hermes.nix`. `containerDataDir` (default `/data/pm`) is the bind-mount target of host `dataDir` inside the container; `PM_DIR` env remains a dev-only override. The flake MUST build from a clean checkout (`vendorHash` real, no placeholders).
 
 #### Scenario: Server starts with data present
 
 - **WHEN** Hermes spawns the `pm` MCP server
-- **THEN** the server initializes against the configured data dir and answers `tools/list`
+- **THEN** the server initializes against the configured container data dir and answers `tools/list`
 
 #### Scenario: Clean build
 

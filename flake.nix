@@ -71,7 +71,13 @@
             dataDir = mkOption {
               type = types.str;
               default = "/home/xvantz/Documents/pm";
-              description = "Directory for PM project data (YAML store). Used as PM_DIR.";
+              description = "Host directory for PM project data (YAML store). Used as PM_DIR.";
+            };
+
+            containerDataDir = mkOption {
+              type = types.str;
+              default = "/data/pm";
+              description = "PM data directory path INSIDE the Hermes container (bind-mount target of dataDir).";
             };
           };
 
