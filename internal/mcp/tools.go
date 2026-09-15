@@ -20,7 +20,7 @@ func RegisterPMTools(s *Server, st store.Store) {
 		{
 			Name:        "list_projects",
 			Description: "List all projects with their status and progress",
-			InputSchema: json.RawMessage(`{}`),
+			InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 			Handler:     makeHandler(st, handleListProjects),
 		},
 		{

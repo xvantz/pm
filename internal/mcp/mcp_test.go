@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -13,25 +12,28 @@ import (
 	"github.com/xvantz/pm/internal/types"
 )
 
-// readMCPResponse parses a Content-Length framed MCP response from buf.
+// readMCPResponse parses an NDJSON MCP response from buf.
+// writeMessage emits one JSON object per line with no Content-Length
+// framing (the Hermes Python MCP client reads stdout line by line).
 func readMCPResponse(t *testing.T, buf *bytes.Buffer) jsonrpcMessage {
 	t.Helper()
-	data := buf.Bytes()
-	re := regexp.MustCompile(`Content-Length: (\d+)\r\n\r\n`)
-	m := re.FindSubmatch(data)
-	if m == nil {
-		t.Fatalf("no Content-Length header in: %s", string(data))
-	}
-	length := 0
-	fmt.Sscanf(string(m[1]), "%d", &length)
-	bodyStart := len(m[0])
-	body := data[bodyStart : bodyStart+length]
+	data := bytes.TrimSpace(buf.Bytes())
 
 	var resp jsonrpcMessage
-	if err := json.Unmarshal(body, &resp); err != nil {
-		t.Fatalf("unmarshal response: %v\nbody: %s", err, string(body))
+	if err := json.Unmarshal(data, &resp); err != nil {
+		t.Fatalf("unmarshal response: %v\nbody: %s", err, string(data))
 	}
 	return resp
+}
+
+// testMsg builds a jsonrpcMessage for handleMessage unit tests.
+func testMsg(id int, method, params string) jsonrpcMessage {
+	return jsonrpcMessage{
+		JSONRPC: "2.0",
+		ID:      &id,
+		Method:  method,
+		Params:  json.RawMessage(params),
+	}
 }
 
 // --- Server protocol tests ---
@@ -42,8 +44,8 @@ func TestServer_Initialize(t *testing.T) {
 	var buf bytes.Buffer
 	state := stateNew
 
-	s.handleMessage(context.Background(), 
-		json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`),
+	s.handleMessage(context.Background(),
+		testMsg(1, "initialize", `{}`),
 		&buf, &state,
 	)
 
@@ -74,8 +76,8 @@ func TestServer_ToolsList(t *testing.T) {
 	var buf bytes.Buffer
 	state := stateInitialized // already initialized
 
-	s.handleMessage(context.Background(), 
-		json.RawMessage(`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`),
+	s.handleMessage(context.Background(),
+		testMsg(2, "tools/list", `{}`),
 		&buf, &state,
 	)
 
@@ -117,8 +119,8 @@ func TestServer_ToolsCall(t *testing.T) {
 	var buf bytes.Buffer
 	state := stateInitialized
 
-	s.handleMessage(context.Background(), 
-		json.RawMessage(`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"hello","arguments":{"name":"World"}}}`),
+	s.handleMessage(context.Background(),
+		testMsg(3, "tools/call", `{"name":"hello","arguments":{"name":"World"}}`),
 		&buf, &state,
 	)
 
@@ -151,8 +153,8 @@ func TestServer_NotInitialized(t *testing.T) {
 	state := stateNew
 
 	// Should reject tools/list before initialized
-	s.handleMessage(context.Background(), 
-		json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`),
+	s.handleMessage(context.Background(),
+		testMsg(1, "tools/list", `{}`),
 		&buf, &state,
 	)
 
@@ -171,8 +173,8 @@ func TestServer_UnknownTool(t *testing.T) {
 	var buf bytes.Buffer
 	state := stateInitialized
 
-	s.handleMessage(context.Background(), 
-		json.RawMessage(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"nonexistent","arguments":{}}}`),
+	s.handleMessage(context.Background(),
+		testMsg(1, "tools/call", `{"name":"nonexistent","arguments":{}}`),
 		&buf, &state,
 	)
 
@@ -643,5 +645,52 @@ func TestHandleAddBlocker_Duplicate(t *testing.T) {
 	_, err := handleAddBlocker(st, context.Background(), json.RawMessage(`{"project_id":"1","step_id":"vpn-access","title":"Test Blk"}`))
 	if err == nil {
 		t.Error("expected error for duplicate blocker")
+	}
+}
+
+// Regression test for Hermes ListToolsResult ValidationError:
+// every tool inputSchema must be an object with explicit "type": "object".
+// A bare `{}` makes strict MCP clients reject the whole tools/list response.
+func TestToolsList_AllSchemasAreObjects(t *testing.T) {
+	t.Parallel()
+	st := store.NewMockStore()
+	s := NewServer("pm-mcp", "0.1.0")
+	RegisterPMTools(s, st)
+
+	var buf bytes.Buffer
+	state := stateInitialized
+	s.handleMessage(context.Background(),
+		testMsg(99, "tools/list", `{}`),
+		&buf, &state,
+	)
+
+	resp := readMCPResponse(t, &buf)
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+
+	var result struct {
+		Tools []struct {
+			Name        string          `json:"name"`
+			InputSchema json.RawMessage `json:"inputSchema"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if len(result.Tools) == 0 {
+		t.Fatal("tools/list returned no tools")
+	}
+	for _, tool := range result.Tools {
+		var schema struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
+			t.Errorf("tool %q: inputSchema is not valid JSON: %v", tool.Name, err)
+			continue
+		}
+		if schema.Type != "object" {
+			t.Errorf("tool %q: inputSchema.type = %q, want %q", tool.Name, schema.Type, "object")
+		}
 	}
 }
