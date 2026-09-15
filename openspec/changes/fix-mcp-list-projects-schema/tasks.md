@@ -1,10 +1,10 @@
 # Tasks: fix-mcp-list-projects-schema
 
-## Phase 1: Fix
+## Phase 1: Fix - DONE on branch fix/mcp-schema-transport
 
-- [ ] 1.1 `internal/mcp/tools.go`: заменить `InputSchema` у `list_projects` на `{"type":"object","properties":{}}`
-- [ ] 1.2 `internal/mcp/mcp_test.go`: добавить тест, проверяющий `"type": "object"` у всех тулов в `tools/list`
-- [ ] 1.3 Прогнать `go test ./...` и `go vet ./...`
+- [x] 1.1 `internal/mcp/tools.go`: заменить `InputSchema` у `list_projects` на `{"type":"object","properties":{}}`
+- [x] 1.2 `internal/mcp/mcp_test.go`: добавить тест, проверяющий `"type": "object"` у всех тулов в `tools/list`
+- [x] 1.3 Прогнать `go test ./...` и `go vet ./...`
 
 ## Phase 2: Deploy
 

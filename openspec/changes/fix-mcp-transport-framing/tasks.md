@@ -1,10 +1,10 @@
 # Tasks: fix-mcp-transport-framing
 
-## Phase 1: Spike (выбор варианта)
+## Phase 1: Spike (выбор варианта) - DONE, см. design.md
 
-- [ ] 1.1 Подтвердить формат Hermes Python MCP клиента: NDJSON построчно (байты из живого handshake)
-- [ ] 1.2 Оценить официальный MCP Go SDK: покрывает ли `tools/list`, `tools/call`, `ping`, string ID
-- [ ] 1.3 Зафиксировать решение (A NDJSON-откат / B SDK) в `design.md` этого ченжа
+- [x] 1.1 Подтвердить формат Hermes Python MCP клиента: NDJSON построчно (байты из живого handshake)
+- [x] 1.2 Оценить официальный MCP Go SDK: покрывает ли `tools/list`, `tools/call`, `ping`, string ID
+- [x] 1.3 Зафиксировать решение (A NDJSON-откат / B SDK) в `design.md` этого ченжа
 
 ## Phase 2: Implement
 
