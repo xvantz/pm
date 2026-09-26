@@ -59,3 +59,18 @@ Errors are JSON `{"error": msg}` with codes:
 `pm serve [--addr 127.0.0.1:8472] [--dir PATH] [--token ...]`
 starts the daemon. `--dir` overrides `PM_DIR`. Missing token is a
 startup error telling the user to set `PM_TOKEN`.
+
+## Requirement: Nix options
+
+The flake module SHALL expose `services.pm.listenAddr`
+(default `127.0.0.1:8472`) and `services.pm.tokenFile`
+(default null, sops-managed path). When `tokenFile` is set, a
+`pm-serve` systemd service is created: `restart=always`,
+token via `LoadCredential` (never in nix store or unit text),
+`PM_DIR` from `services.pm.dataDir`.
+
+### Scenario: host enables daemon
+
+- WHEN `services.pm = { enable = true; tokenFile = /run/secrets/pm_token; }`
+- THEN after `nixos-rebuild`, `curl localhost:8472/healthz` answers
+  and authed `/api/projects` round-trips
