@@ -1,11 +1,20 @@
 package cli
 
 import (
+	"os"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/xvantz/pm/internal/types"
 )
+
+// TestMain scrubs remote-mode env so file-store tests stay hermetic:
+// a leaked PM_API would redirect openStore() at a (possibly dead) daemon.
+func TestMain(m *testing.M) {
+	os.Unsetenv("PM_API")
+	os.Unsetenv("PM_TOKEN")
+	os.Exit(m.Run())
+}
 
 func TestAdd_Dispatch(t *testing.T) {
 	cases := []struct {

@@ -18,7 +18,18 @@
 - [ ] 2.1 systemd unit `pm-serve` + sops token (`PM_TOKEN`)
 - [ ] 2.2 Smoke: `curl localhost:8472/healthz`, authed list_projects round-trip
 
-## Phase 3: Migrate clients (separate changes)
+## Phase 3: Migrate clients (this change)
 
-- [ ] 3.1 CLI commands onto HTTP client (single code path)
-- [ ] 3.2 pm-mcp onto HTTP client, drop bind-mount from hermes.nix
+- [x] 3.1 `internal/client`: typed HTTP client, все эндпоинты + trash + briefing
+- [x] 3.2 `internal/apistore`: `store.Store` поверх HTTP (delta-маппинг в
+  lifecycle endpoints, NextNumber advisory, Advance no-op)
+- [x] 3.3 CLI: `openStore()` → remote при `PM_API`, briefing remote branch,
+  doctor всегда локальный; тесты hermetic через TestMain
+- [x] 3.4 `pm-mcp`: remote при `PM_API` без проверки папки
+- [x] 3.5 E2E: CLI remote полный цикл 1:1, MCP remote tools/call, daemon trash endpoints
+- [ ] 3.6 Host: убрать bind-mount из hermes.nix, MCP через PM_API+PM_TOKEN
+
+## Phase 4: Остаток openspec (пересмотреть после демона)
+
+- [ ] store-robustness частично не нужен (гонок нет при одном писателе)
+- [ ] trash-restore, lifecycle-force - по мере надобности

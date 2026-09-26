@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/xvantz/pm/internal/apistore"
 	"github.com/xvantz/pm/internal/mcp"
 	"github.com/xvantz/pm/internal/store"
 )
@@ -33,13 +34,19 @@ func main() {
 
 	root := projectsDir(*dirFlag)
 
-	info, err := os.Stat(root)
-	if err != nil || !info.IsDir() {
-		fmt.Fprintf(os.Stderr, "projects dir not found: %s\n  Run `pm init` first.\n", root)
-		os.Exit(1)
+	var st store.Store
+	if remote, ok := apistore.NewFromEnv(); ok {
+		st = remote
+		slog.Info("PM MCP server started in remote mode", "api", os.Getenv("PM_API"))
+	} else {
+		info, err := os.Stat(root)
+		if err != nil || !info.IsDir() {
+			fmt.Fprintf(os.Stderr, "projects dir not found: %s\n  Run `pm init` first or set PM_API.\n", root)
+			os.Exit(1)
+		}
+		st = store.NewFileStore(root)
+		slog.Info("PM MCP server started", "dir", root)
 	}
-
-	st := store.NewFileStore(root)
 
 	server := mcp.NewServer("pm-mcp", Version)
 	mcp.RegisterPMTools(server, st)
@@ -47,7 +54,6 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	slog.Info("PM MCP server started", "dir", root)
 	if err := server.Run(ctx); err != nil {
 		slog.Error("server error", "error", err)
 		os.Exit(1)

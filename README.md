@@ -214,6 +214,21 @@ curl -H "Authorization: Bearer $PM_TOKEN" localhost:8472/api/projects
 Коды: 400 тело, 401 auth, 404 ref, 409 дубликат, 422 lifecycle, 500 store.
 Слушает localhost по умолчанию. Наружу только через Tailscale, никогда 0.0.0.0.
 
+## Клиенты без файлов (remote mode)
+
+CLI и MCP умеют работать через демон вместо YAML. Нужны только адрес и токен,
+маунты данных не нужны:
+
+```bash
+export PM_API=http://127.0.0.1:8472 PM_TOKEN=...
+pm project list     # идет в демон, тексты 1:1 как локально
+pm briefing         # брифинг считает демон
+```
+
+`pm-mcp` в remote режиме не проверяет папку вообще. `pm doctor` всегда
+локальный (целостность файлов через API не проверяют). `pm serve` всегда
+пишет напрямую в файлы.
+
 ## Лицензия
 
 MIT

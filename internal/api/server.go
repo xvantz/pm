@@ -55,6 +55,9 @@ func New(st store.Store, token string) *Server {
 	s.mux.HandleFunc("POST /api/projects/{ref}/decisions", s.auth(s.handleDecisionCreate))
 	s.mux.HandleFunc("DELETE /api/projects/{ref}/decisions/{dec}", s.auth(s.handleDecisionDelete))
 	s.mux.HandleFunc("GET /api/briefing", s.auth(s.handleBriefing))
+	s.mux.HandleFunc("GET /api/trash", s.auth(s.handleTrashList))
+	s.mux.HandleFunc("POST /api/trash/{name}/restore", s.auth(s.handleTrashRestore))
+	s.mux.HandleFunc("DELETE /api/trash", s.auth(s.handleTrashClean))
 	return s
 }
 
@@ -602,4 +605,41 @@ func (s *Server) handleBriefing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, b)
+}
+
+// --- trash ---
+
+func (s *Server) handleTrashList(w http.ResponseWriter, _ *http.Request) {
+	names, err := s.store.TrashList()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if names == nil {
+		names = []string{}
+	}
+	writeJSON(w, http.StatusOK, names)
+}
+
+func (s *Server) handleTrashRestore(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	name := r.PathValue("name")
+	if err := s.store.TrashRestore(name); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"restored": name})
+}
+
+func (s *Server) handleTrashClean(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.store.TrashClean(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"cleaned": "trash"})
 }
