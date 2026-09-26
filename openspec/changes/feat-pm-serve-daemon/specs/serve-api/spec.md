@@ -1,0 +1,76 @@
+# Spec: pm-serve HTTP API
+
+## Requirement: Single writer
+
+The daemon SHALL be the only process touching the YAML store files.
+All mutations go through HTTP handlers that hold a process-wide mutex.
+
+### Scenario: concurrent writes serialize
+
+- WHEN two POSTs arrive simultaneously
+- THEN both succeed, files contain both writes, no partial YAML
+
+## Requirement: Bearer auth
+
+Every request under `/api/*` SHALL present
+`Authorization: Bearer <token>`. The token comes from `--token` flag
+or `PM_TOKEN` env (flag wins). Comparison is constant-time.
+Missing or wrong token yields `401` with JSON error body.
+
+### Scenario: no token
+
+- WHEN `GET /api/projects` without header
+- THEN `401 {"error":"unauthorized"}`
+
+### Scenario: health without auth
+
+- WHEN `GET /healthz`
+- THEN `200 {"status":"ok","version":"..."}` without any header
+
+## Requirement: Endpoints mirror the store
+
+Reads return the same JSON shapes as MCP read tools:
+
+- `GET /api/projects` -> `[]Project`
+- `GET /api/projects/{ref}` -> `ProjectData` (ref = number or UUID)
+- `PATCH /api/projects/{ref}` `{goal?, status?, tags?}` -> `Project`
+- `DELETE /api/projects/{ref}` -> trash, `200 {"trashed": name}`
+- `GET /api/projects/{ref}/steps` -> `[]Step`
+- `POST /api/projects/{ref}/steps` `{title}` -> `Step` (slug id,
+  duplicate title yields `409`)
+- `POST /api/projects/{ref}/steps/{step}/{start,review,done}` ->
+  `Step` with domain lifecycle validation (`422` on illegal transition)
+- `DELETE /api/projects/{ref}/steps/{step}` -> `200`
+- `GET /api/projects/{ref}/blockers` -> `[]Blocker`
+- `POST /api/projects/{ref}/steps/{step}/blockers` `{title, reason?}`
+  -> `Blocker` (default status `waiting`)
+- `POST .../blockers/{blk}/resolve` -> `Blocker`
+- `DELETE .../blockers/{blk}` -> `200`
+- `GET /api/projects/{ref}/decisions` -> `[]Decision`
+- `POST /api/projects/{ref}/decisions` `{title, reason?}` -> `Decision`
+- `GET /api/briefing?date=&project=` -> briefing JSON
+
+Errors are JSON `{"error": msg}` with codes:
+`400` bad body, `401` auth, `404` unknown ref, `409` duplicate,
+`422` lifecycle violation, `500` store failure.
+
+## Requirement: CLI entry
+
+`pm serve [--addr 127.0.0.1:8472] [--dir PATH] [--token ...]`
+starts the daemon. `--dir` overrides `PM_DIR`. Missing token is a
+startup error telling the user to set `PM_TOKEN`.
+
+## Requirement: Nix options
+
+The flake module SHALL expose `services.pm.listenAddr`
+(default `127.0.0.1:8472`) and `services.pm.tokenFile`
+(default null, sops-managed path). When `tokenFile` is set, a
+`pm-serve` systemd service is created: `restart=always`,
+token via `LoadCredential` (never in nix store or unit text),
+`PM_DIR` from `services.pm.dataDir`.
+
+### Scenario: host enables daemon
+
+- WHEN `services.pm = { enable = true; tokenFile = /run/secrets/pm_token; }`
+- THEN after `nixos-rebuild`, `curl localhost:8472/healthz` answers
+  and authed `/api/projects` round-trips

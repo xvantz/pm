@@ -40,6 +40,8 @@ func Run(args []string) error {
 		return cmdDel(args[1:])
 	case "trash":
 		return cmdTrash(args[1:])
+	case "serve":
+		return cmdServe(args[1:])
 	case "help", "--help", "-h":
 		PrintUsage()
 		return nil
@@ -78,6 +80,7 @@ Usage:
   pm decision list <id>          список решений
   pm doctor                      проверка целостности хранилища
   pm briefing [flags]            показать брифинг
+  pm serve [--addr 127.0.0.1:8472] [--token ...]  HTTP демон (single writer)
   pm help                        эта справка
 
 Briefing flags:

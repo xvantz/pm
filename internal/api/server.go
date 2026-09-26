@@ -1,0 +1,605 @@
+// Package api implements `pm serve`: a single-writer HTTP daemon owning the
+// YAML store. Clients (CLI, MCP, future) talk to it instead of touching
+// files directly, so concurrent writes serialize and the data path is known
+// in exactly one place (the daemon).
+package api
+
+import (
+	"crypto/subtle"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+	"sync"
+
+	"github.com/google/uuid"
+
+	"github.com/xvantz/pm/internal/briefing"
+	"github.com/xvantz/pm/internal/domain"
+	"github.com/xvantz/pm/internal/slug"
+	"github.com/xvantz/pm/internal/store"
+	"github.com/xvantz/pm/internal/types"
+)
+
+// Version is set by -ldflags during build; fallback for dev.
+var Version = "dev"
+
+// Server owns the store and serves it over HTTP.
+type Server struct {
+	store   store.Store
+	mux     *http.ServeMux
+	mu      sync.Mutex // serializes mutations across projects (counter, etc.)
+	token   string
+	version string
+}
+
+// New returns a Server bound to st. Token must be non-empty.
+func New(st store.Store, token string) *Server {
+	s := &Server{store: st, mux: http.NewServeMux(), token: token, version: Version}
+	s.mux.HandleFunc("GET /healthz", s.handleHealth)
+	s.mux.HandleFunc("GET /api/projects", s.auth(s.handleProjectsList))
+	s.mux.HandleFunc("POST /api/projects", s.auth(s.handleProjectCreate))
+	s.mux.HandleFunc("GET /api/projects/{ref}", s.auth(s.handleProjectGet))
+	s.mux.HandleFunc("PATCH /api/projects/{ref}", s.auth(s.handleProjectPatch))
+	s.mux.HandleFunc("DELETE /api/projects/{ref}", s.auth(s.handleProjectDelete))
+	s.mux.HandleFunc("GET /api/projects/{ref}/steps", s.auth(s.handleStepsList))
+	s.mux.HandleFunc("POST /api/projects/{ref}/steps", s.auth(s.handleStepCreate))
+	s.mux.HandleFunc("POST /api/projects/{ref}/steps/{step}/{action}", s.auth(s.handleStepAction))
+	s.mux.HandleFunc("DELETE /api/projects/{ref}/steps/{step}", s.auth(s.handleStepDelete))
+	s.mux.HandleFunc("GET /api/projects/{ref}/blockers", s.auth(s.handleBlockersList))
+	s.mux.HandleFunc("POST /api/projects/{ref}/steps/{step}/blockers", s.auth(s.handleBlockerCreate))
+	s.mux.HandleFunc("POST /api/projects/{ref}/steps/{step}/blockers/{blk}/resolve", s.auth(s.handleBlockerResolve))
+	s.mux.HandleFunc("DELETE /api/projects/{ref}/steps/{step}/blockers/{blk}", s.auth(s.handleBlockerDelete))
+	s.mux.HandleFunc("GET /api/projects/{ref}/decisions", s.auth(s.handleDecisionsList))
+	s.mux.HandleFunc("POST /api/projects/{ref}/decisions", s.auth(s.handleDecisionCreate))
+	s.mux.HandleFunc("DELETE /api/projects/{ref}/decisions/{dec}", s.auth(s.handleDecisionDelete))
+	s.mux.HandleFunc("GET /api/briefing", s.auth(s.handleBriefing))
+	return s
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
+
+// auth rejects requests without the Bearer token.
+func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if got == "" || subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 {
+			writeErr(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		next(w, r)
+	}
+}
+
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeErr(w http.ResponseWriter, code int, msg string) {
+	writeJSON(w, code, map[string]string{"error": msg})
+}
+
+func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	defer r.Body.Close()
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("bad body: %v", err))
+		return false
+	}
+	return true
+}
+
+// resolve finds the project or writes 404.
+func (s *Server) resolve(w http.ResponseWriter, ref string) *types.ProjectData {
+	pd, err := s.store.ResolveProject(ref)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, fmt.Sprintf("project %q not found", ref))
+		return nil
+	}
+	return pd
+}
+
+func touchProject(s *Server, pd *types.ProjectData) {
+	pd.Project.UpdatedAt = types.NowISO()
+	if err := s.store.SaveProject(pd.Project); err != nil {
+		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
+	}
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": s.version})
+}
+
+// --- projects ---
+
+func (s *Server) handleProjectsList(w http.ResponseWriter, _ *http.Request) {
+	projects, err := s.store.ListProjects()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if projects == nil {
+		projects = []types.Project{}
+	}
+	writeJSON(w, http.StatusOK, projects)
+}
+
+type createProjectReq struct {
+	Title string   `json:"title"`
+	Goal  string   `json:"goal,omitempty"`
+	Tags  []string `json:"tags,omitempty"`
+}
+
+func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
+	var req createProjectReq
+	if !decode(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.Title) == "" {
+		writeErr(w, http.StatusBadRequest, "title cannot be empty")
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	uid, err := uuid.NewV7()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("generate id: %v", err))
+		return
+	}
+	number, err := s.store.NextNumber()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("next number: %v", err))
+		return
+	}
+	now := types.NowISO()
+	p := types.Project{
+		ID: idString(uid), Number: number, Title: req.Title,
+		Goal: req.Goal, Tags: req.Tags,
+		Status: types.StatusIdea, CreatedAt: now, UpdatedAt: now,
+	}
+	// Advance before save: a crash skips a number (gap), never duplicates one.
+	if err := s.store.AdvanceNextNumber(); err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("advance number: %v", err))
+		return
+	}
+	if err := s.store.SaveProject(p); err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("save project: %v", err))
+		return
+	}
+	writeJSON(w, http.StatusCreated, p)
+}
+
+func idString(uid uuid.UUID) string { return uid.String() }
+
+func (s *Server) handleProjectGet(w http.ResponseWriter, r *http.Request) {
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	writeJSON(w, http.StatusOK, pd)
+}
+
+type patchProjectReq struct {
+	Goal   *string             `json:"goal,omitempty"`
+	Status *types.ProjectStatus `json:"status,omitempty"`
+	Tags   []string            `json:"tags,omitempty"`
+}
+
+func (s *Server) handleProjectPatch(w http.ResponseWriter, r *http.Request) {
+	var req patchProjectReq
+	if !decode(w, r, &req) {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	if req.Goal != nil {
+		pd.Project.Goal = *req.Goal
+	}
+	if req.Status != nil {
+		switch *req.Status {
+		case types.StatusActive, types.StatusCompleted, types.StatusPaused, types.StatusIdea:
+			pd.Project.Status = *req.Status
+			if *req.Status == types.StatusCompleted {
+				pd.Project.CompletedAt = types.NowISO()
+			}
+		default:
+			writeErr(w, http.StatusBadRequest, fmt.Sprintf("bad status: %q", *req.Status))
+			return
+		}
+	}
+	if req.Tags != nil {
+		pd.Project.Tags = req.Tags
+	}
+	pd.Project.UpdatedAt = types.NowISO()
+	if err := s.store.SaveProject(pd.Project); err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("save project: %v", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, pd.Project)
+}
+
+func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	if err := s.store.DeleteProject(pd.Project.ID); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"trashed": pd.Project.Title})
+}
+
+// --- steps ---
+
+func (s *Server) handleStepsList(w http.ResponseWriter, r *http.Request) {
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	steps, err := s.store.GetSteps(pd.Project.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if steps == nil {
+		steps = []types.Step{}
+	}
+	writeJSON(w, http.StatusOK, steps)
+}
+
+type createStepReq struct {
+	Title string `json:"title"`
+}
+
+func (s *Server) handleStepCreate(w http.ResponseWriter, r *http.Request) {
+	var req createStepReq
+	if !decode(w, r, &req) {
+		return
+	}
+	id := slug.Of(req.Title)
+	if id == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("invalid step title: %q", req.Title))
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	for _, st := range pd.Steps {
+		if st.ID == id {
+			writeErr(w, http.StatusConflict, fmt.Sprintf("step %q already exists", id))
+			return
+		}
+	}
+	now := types.NowISO()
+	step := types.Step{
+		ID: id, Title: req.Title, Status: types.StepTodo,
+		ProjectID: pd.Project.ID, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := s.store.SaveStep(step); err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("save step: %v", err))
+		return
+	}
+	touchProject(s, pd)
+	writeJSON(w, http.StatusCreated, step)
+}
+
+func (s *Server) findStep(pd *types.ProjectData, stepID string) *types.Step {
+	for i := range pd.Steps {
+		if pd.Steps[i].ID == stepID {
+			return &pd.Steps[i]
+		}
+	}
+	return nil
+}
+
+func (s *Server) handleStepAction(w http.ResponseWriter, r *http.Request) {
+	action := r.PathValue("action")
+	var validate func(types.Step) error
+	var next types.StepStatus
+	switch action {
+	case "start":
+		validate, next = domain.ValidateStepStart, types.StepInProgress
+	case "review":
+		validate, next = domain.ValidateStepReview, types.StepReview
+	case "done":
+		validate, next = domain.ValidateStepDone, types.StepDone
+	default:
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("bad action: %q (start|review|done)", action))
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	st := s.findStep(pd, r.PathValue("step"))
+	if st == nil {
+		writeErr(w, http.StatusNotFound, fmt.Sprintf("step %q not found", r.PathValue("step")))
+		return
+	}
+	if err := validate(*st); err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	domain.StepStatusChange(st, next, types.NowISO())
+	if err := s.store.SaveStep(*st); err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("save step: %v", err))
+		return
+	}
+	touchProject(s, pd)
+	writeJSON(w, http.StatusOK, *st)
+}
+
+func (s *Server) handleStepDelete(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	if s.findStep(pd, r.PathValue("step")) == nil {
+		writeErr(w, http.StatusNotFound, fmt.Sprintf("step %q not found", r.PathValue("step")))
+		return
+	}
+	if err := s.store.DeleteStep(pd.Project.ID, r.PathValue("step")); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	touchProject(s, pd)
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": r.PathValue("step")})
+}
+
+// --- blockers ---
+
+func (s *Server) handleBlockersList(w http.ResponseWriter, r *http.Request) {
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	blockers, err := s.store.GetBlockers(pd.Project.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if blockers == nil {
+		blockers = []types.Blocker{}
+	}
+	writeJSON(w, http.StatusOK, blockers)
+}
+
+type createBlockerReq struct {
+	Title  string `json:"title"`
+	Reason string `json:"reason,omitempty"`
+}
+
+func (s *Server) handleBlockerCreate(w http.ResponseWriter, r *http.Request) {
+	var req createBlockerReq
+	if !decode(w, r, &req) {
+		return
+	}
+	id := slug.Of(req.Title)
+	if id == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("invalid blocker title: %q", req.Title))
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	st := s.findStep(pd, r.PathValue("step"))
+	if st == nil {
+		writeErr(w, http.StatusNotFound, fmt.Sprintf("step %q not found", r.PathValue("step")))
+		return
+	}
+	for _, b := range st.Blockers {
+		if b.ID == id {
+			writeErr(w, http.StatusConflict, fmt.Sprintf("blocker %q already exists", id))
+			return
+		}
+	}
+	now := types.NowISO()
+	blocker := types.Blocker{
+		ID: id, Title: req.Title, Status: types.BlockerWaiting,
+		Reason: req.Reason, ProjectID: pd.Project.ID,
+		StepID: st.ID, CreatedAt: now, UpdatedAt: now,
+	}
+	// SaveBlocker sets the step status to blocked and saves it.
+	if err := s.store.SaveBlocker(blocker); err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("save blocker: %v", err))
+		return
+	}
+	// Re-read for the response (store applied step-status invariants).
+	fresh, err := s.store.ResolveProject(pd.Project.ID)
+	if err == nil {
+		touchProject(s, fresh)
+	} else {
+		touchProject(s, pd)
+	}
+	writeJSON(w, http.StatusCreated, blocker)
+}
+
+func (s *Server) handleBlockerResolve(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	st := s.findStep(pd, r.PathValue("step"))
+	if st == nil {
+		writeErr(w, http.StatusNotFound, fmt.Sprintf("step %q not found", r.PathValue("step")))
+		return
+	}
+	var target *types.Blocker
+	for i := range st.Blockers {
+		if st.Blockers[i].ID == r.PathValue("blk") {
+			target = &st.Blockers[i]
+			break
+		}
+	}
+	if target == nil {
+		writeErr(w, http.StatusNotFound, fmt.Sprintf("blocker %q not found", r.PathValue("blk")))
+		return
+	}
+	target.Status = "resolved"
+	target.UpdatedAt = types.NowISO()
+	// SaveBlocker applies step-blocked invariant but does NOT unblock:
+	// unblocking lives here (same rule as `pm blocker resolve`).
+	if err := s.store.SaveBlocker(*target); err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("save blocker: %v", err))
+		return
+	}
+	freshSteps, err := s.store.GetSteps(pd.Project.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	for _, st := range freshSteps {
+		if st.ID == r.PathValue("step") && !domain.HasUnresolvedBlockers(st.Blockers) {
+			st.Status = types.StepTodo
+			if err := s.store.SaveStep(st); err != nil {
+				writeErr(w, http.StatusInternalServerError, fmt.Sprintf("unblock step: %v", err))
+				return
+			}
+		}
+	}
+	touchProject(s, pd)
+	writeJSON(w, http.StatusOK, *target)
+}
+
+func (s *Server) handleBlockerDelete(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	if s.findStep(pd, r.PathValue("step")) == nil {
+		writeErr(w, http.StatusNotFound, fmt.Sprintf("step %q not found", r.PathValue("step")))
+		return
+	}
+	if err := s.store.DeleteBlocker(pd.Project.ID, r.PathValue("step"), r.PathValue("blk")); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	touchProject(s, pd)
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": r.PathValue("blk")})
+}
+
+// --- decisions ---
+
+func (s *Server) handleDecisionsList(w http.ResponseWriter, r *http.Request) {
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	decisions, err := s.store.GetDecisions(pd.Project.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if decisions == nil {
+		decisions = []types.Decision{}
+	}
+	writeJSON(w, http.StatusOK, decisions)
+}
+
+type createDecisionReq struct {
+	Title  string `json:"title"`
+	Reason string `json:"reason,omitempty"`
+}
+
+func (s *Server) handleDecisionCreate(w http.ResponseWriter, r *http.Request) {
+	var req createDecisionReq
+	if !decode(w, r, &req) {
+		return
+	}
+	id := slug.Of(req.Title)
+	if id == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("invalid decision title: %q", req.Title))
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	for _, d := range pd.Decisions {
+		if d.ID == id {
+			writeErr(w, http.StatusConflict, fmt.Sprintf("decision %q already exists", id))
+			return
+		}
+	}
+	now := types.NowISO()
+	decision := types.Decision{
+		ID: id, Title: req.Title, Reason: req.Reason,
+		Date: now, ProjectID: pd.Project.ID,
+	}
+	if err := s.store.SaveDecision(decision); err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("save decision: %v", err))
+		return
+	}
+	touchProject(s, pd)
+	writeJSON(w, http.StatusCreated, decision)
+}
+
+func (s *Server) handleDecisionDelete(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	if err := s.store.DeleteDecision(pd.Project.ID, r.PathValue("dec")); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	touchProject(s, pd)
+	writeJSON(w, http.StatusOK, map[string]string{"deleted": r.PathValue("dec")})
+}
+
+// --- briefing ---
+
+func (s *Server) handleBriefing(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	b, err := briefing.Generate(briefing.Config{
+		Context:       r.Context(),
+		Store:         s.store,
+		Date:          q.Get("date"),
+		FilterProject: q.Get("project"),
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, b)
+}

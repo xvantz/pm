@@ -79,6 +79,19 @@
               default = "/data/pm";
               description = "PM data directory path INSIDE the Hermes container (bind-mount target of dataDir).";
             };
+
+            listenAddr = mkOption {
+              type = types.str;
+              default = "127.0.0.1:8472";
+              description = "Address for `pm serve` daemon (single writer HTTP API). Keep localhost unless behind Tailscale. Never 0.0.0.0 to the world.";
+            };
+
+            tokenFile = mkOption {
+              type = types.nullOr types.path;
+              default = null;
+              example = "/run/secrets/pm_token";
+              description = "File containing the Bearer token for `pm serve`. Manage via sops-nix. When null, the pm-serve systemd service is not created.";
+            };
           };
 
           config = mkIf cfg.enable {
@@ -87,6 +100,26 @@
             environment.interactiveShellInit = ''
               export PM_DIR="${cfg.dataDir}"
             '';
+
+            systemd.services.pm-serve = mkIf (cfg.tokenFile != null) {
+              description = "PM Project Memory daemon (single writer API)";
+              wantedBy = [ "multi-user.target" ];
+              after = [ "network.target" ];
+              restart = "always";
+              restartSec = "5";
+              serviceConfig = {
+                Type = "simple";
+                DynamicUser = true;
+                StateDirectory = "pm-serve";
+                # Token via file (sops-managed), never in nix store or unit text.
+                LoadCredential = "pm-token:${cfg.tokenFile}";
+              };
+              script = ''
+                export PM_TOKEN="$(cat "$CREDENTIALS_DIRECTORY/pm-token")"
+                export PM_DIR="${cfg.dataDir}"
+                exec ${cfg.package}/bin/pm serve --addr "${cfg.listenAddr}"
+              '';
+            };
           };
         };
     };
