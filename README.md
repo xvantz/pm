@@ -183,6 +183,37 @@ go test ./... -count=1   # 112+ тестов, 7 пакетов
 go vet ./...
 ```
 
+## Демон (`pm serve`)
+
+Один писатель на хранилище: демон владеет YAML, клиенты ходят по HTTP.
+Контейнерам не нужны маунты данных, только адрес и токен.
+
+```bash
+export PM_TOKEN=$(openssl rand -hex 32)
+pm serve --addr 127.0.0.1:8472 &
+curl localhost:8472/healthz
+curl -H "Authorization: Bearer $PM_TOKEN" localhost:8472/api/projects
+```
+
+| Метод | Путь | Что делает |
+|-------|------|-----------|
+| GET | /healthz | liveness, без auth |
+| GET/POST | /api/projects | список / создать `{title, goal?, tags?}` |
+| GET/PATCH/DELETE | /api/projects/{ref} | детали / `{goal?, status?, tags?}` / в корзину |
+| GET/POST | /api/projects/{ref}/steps | список / создать `{title}` |
+| POST | .../steps/{step}/{start,review,done} | lifecycle с валидацией |
+| DELETE | .../steps/{step} | удалить шаг |
+| GET | /api/projects/{ref}/blockers | список блокеров |
+| POST | .../steps/{step}/blockers | создать `{title, reason?}` |
+| POST | .../blockers/{blk}/resolve | снять блокер |
+| DELETE | .../blockers/{blk} | удалить блокер |
+| GET/POST | /api/projects/{ref}/decisions | список / создать `{title, reason?}` |
+| DELETE | .../decisions/{dec} | удалить решение |
+| GET | /api/briefing?date=&project= | брифинг JSON |
+
+Коды: 400 тело, 401 auth, 404 ref, 409 дубликат, 422 lifecycle, 500 store.
+Слушает localhost по умолчанию. Наружу только через Tailscale, никогда 0.0.0.0.
+
 ## Лицензия
 
 MIT
