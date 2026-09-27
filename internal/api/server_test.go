@@ -54,7 +54,6 @@ func TestHealthzNoAuth(t *testing.T) {
 
 func TestAuthRequired(t *testing.T) {
 	srv := newTestServer(t)
-	srv.trustLoopback = false // strict mode: token everywhere
 	for _, path := range []string{"/api/projects", "/api/briefing"} {
 		w := doReq(t, srv, "GET", path, nil, "")
 		if w.Code != http.StatusUnauthorized {
@@ -64,34 +63,6 @@ func TestAuthRequired(t *testing.T) {
 		if w.Code != http.StatusUnauthorized {
 			t.Errorf("GET %s wrong token: code = %d, want 401", path, w.Code)
 		}
-	}
-}
-
-func TestLoopbackBypass(t *testing.T) {
-	srv := newTestServer(t) // trustLoopback on (default)
-	// doReq drives ServeHTTP directly (RemoteAddr 192.0.2.1), so set
-	// loopback explicitly the way a real local TCP connection would.
-	loopReq := func(method, path string, body any) *httptest.ResponseRecorder {
-		t.Helper()
-		var buf bytes.Buffer
-		if body != nil {
-			if err := json.NewEncoder(&buf).Encode(body); err != nil {
-				t.Fatal(err)
-			}
-		}
-		req := httptest.NewRequest(method, path, &buf)
-		req.RemoteAddr = "127.0.0.1:1234"
-		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, req)
-		return w
-	}
-	w := loopReq("GET", "/api/projects", nil)
-	if w.Code != http.StatusOK {
-		t.Errorf("loopback without token: code = %d, want 200", w.Code)
-	}
-	w = loopReq("POST", "/api/projects", map[string]string{"title": "Loopback"})
-	if w.Code != http.StatusCreated {
-		t.Errorf("loopback write without token: code = %d, want 201", w.Code)
 	}
 }
 

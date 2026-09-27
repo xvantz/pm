@@ -20,8 +20,12 @@ func doctorLive() error {
 	bad := 0
 
 	token := strings.TrimSpace(os.Getenv("PM_TOKEN"))
-	if token == "" {
-		fmt.Println("  ⚠ PM_TOKEN пуст: с loopback пустит без токена, из сети будет 401.")
+	noToken := token == ""
+	if noToken {
+		fmt.Println("  ❌ PM_TOKEN пуст: ни чтение, ни запись не пройдут.")
+		fmt.Println("     Токен раздается автоматически: сервис через sops pm_env,")
+		fmt.Println("     шелл и MCP из него же. Проверь: секрет pm_env на месте,")
+		fmt.Println("     rebuild сделан, шелл перезапущен.")
 	} else {
 		fmt.Println("  ✅ PM_TOKEN задан.")
 	}
@@ -41,12 +45,12 @@ func doctorLive() error {
 	} else {
 		fmt.Printf("  ✅ Демон жив (healthz ok, версия %s).\n", cl.Version())
 		_ = status
-		if _, err := cl.ListProjects(); err != nil {
-			fmt.Printf("  ❌ Проекты не читаются: %v\n", err)
-			fmt.Println("     Loopback без токена закрыт, а PM_TOKEN не подошел: сверь с токеном демона.")
+		if noToken {
+			bad++ // counted above, probe needs a token
+		} else if _, err := cl.ListProjects(); err != nil {
+			fmt.Printf("  ❌ Auth не прошел: %v\n", err)
+			fmt.Println("     Токен в шелле не совпал с токеном демона: сверь pm_env.")
 			bad++
-		} else if token == "" {
-			fmt.Println("  ✅ Чтение без токена: loopback доверенный.")
 		} else {
 			fmt.Println("  ✅ Auth прошел: проекты читаются.")
 		}

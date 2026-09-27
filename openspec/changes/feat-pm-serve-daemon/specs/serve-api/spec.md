@@ -12,12 +12,12 @@ All mutations go through HTTP handlers that hold a process-wide mutex.
 
 ## Requirement: Bearer auth
 
-Every request under `/api/*` from outside loopback SHALL present
+Every request under `/api/*` SHALL present
 `Authorization: Bearer <token>`. The token comes from `--token` flag
 or `PM_TOKEN` env (flag wins). Comparison is constant-time.
 Missing or wrong token yields `401` with JSON error body.
-Loopback clients (127.0.0.1/::1, same machine) bypass auth:
-local CLI needs no token. Disable via strict mode for token-everywhere.
+The token is provisioned everywhere it is needed: the daemon via sops
+`pm_env`, the user shell and MCP from the same secret. No exceptions.
 
 ### Scenario: no token
 
