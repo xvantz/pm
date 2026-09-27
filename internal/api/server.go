@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -32,11 +33,16 @@ type Server struct {
 	mu      sync.Mutex // serializes mutations across projects (counter, etc.)
 	token   string
 	version string
+	// TrustLoopback skips Bearer auth for 127.0.0.1/::1 clients:
+	// same machine = same trust domain (local CLI needs no token).
+	// Everything off-loopback always needs the token.
+	// Disable for strict mode (token everywhere).
+	trustLoopback bool
 }
 
 // New returns a Server bound to st. Token must be non-empty.
 func New(st store.Store, token string) *Server {
-	s := &Server{store: st, mux: http.NewServeMux(), token: token, version: Version}
+	s := &Server{store: st, mux: http.NewServeMux(), token: token, version: Version, trustLoopback: true}
 	s.mux.HandleFunc("GET /healthz", s.handleHealth)
 	s.mux.HandleFunc("GET /api/projects", s.auth(s.handleProjectsList))
 	s.mux.HandleFunc("POST /api/projects", s.auth(s.handleProjectCreate))
@@ -63,9 +69,14 @@ func New(st store.Store, token string) *Server {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.mux.ServeHTTP(w, r) }
 
-// auth rejects requests without the Bearer token.
+// auth rejects requests without the Bearer token, except loopback
+// clients when trustLoopback is on (same machine = trusted).
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if s.trustLoopback && isLoopback(r.RemoteAddr) {
+			next(w, r)
+			return
+		}
 		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if got == "" || subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 {
 			writeErr(w, http.StatusUnauthorized, "unauthorized")
@@ -73,6 +84,15 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+// isLoopback reports whether addr (host:port) is a loopback address.
+func isLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	return net.ParseIP(host).IsLoopback()
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
