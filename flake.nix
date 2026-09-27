@@ -74,6 +74,15 @@
               description = "Host directory for PM project data (YAML store). Only the pm-serve daemon reads it.";
             };
 
+            user = mkOption {
+              type = types.str;
+              default = "xvantz";
+              description = ''
+                User the pm-serve daemon runs as. Must read dataDir:
+                keep it as the owner of that directory.
+              '';
+            };
+
             listenAddr = mkOption {
               type = types.str;
               default = "127.0.0.1:8472";
@@ -119,9 +128,9 @@
               after = [ "network.target" ];
               serviceConfig = {
                 Type = "simple";
-                # Runs as xvantz: the data lives in $HOME, a DynamicUser
-                # cannot read it (fails with "projects dir not found").
-                User = "xvantz";
+                # The data lives wherever dataDir points (a $HOME by default),
+                # so the daemon runs as its owner, not as a DynamicUser.
+                User = cfg.user;
                 Restart = "always";
                 RestartSec = "5";
                 EnvironmentFile = cfg.environmentFile;
