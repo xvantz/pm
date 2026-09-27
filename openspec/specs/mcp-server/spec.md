@@ -8,12 +8,17 @@
 
 ### Requirement: Stdio JSON-RPC transport
 
-The server SHALL communicate over stdio using JSON-RPC 2.0 messages with Content-Length framing on both read (`messageReader.readMessage`) and write (`writeMessage`).
+The server SHALL communicate over stdio using newline-delimited JSON-RPC 2.0 (NDJSON, one JSON object per line, no `Content-Length` framing) on both read and write, matching the Hermes Python MCP client. If the official MCP Go SDK is adopted, its stdio transport SHALL be used instead of any hand-rolled framing.
 
 #### Scenario: Initialize handshake
 
 - **WHEN** the client sends `initialize` with any params
 - **THEN** the server responds with `protocolVersion: "2024-11-05"`, empty `capabilities.tools` and `serverInfo` (name, version), without requiring prior state
+
+#### Scenario: Initialize handshake (Hermes interop)
+
+- **WHEN** Hermes sends `initialize` as a single `\n`-terminated JSON line followed by `notifications/initialized`
+- **THEN** the server responds with `protocolVersion`, `capabilities` and `serverInfo` as single `\n`-terminated JSON lines, with no `Content-Length` headers on the wire
 
 #### Scenario: Calls before initialization are rejected
 
@@ -36,7 +41,12 @@ The server SHALL expose exactly 14 tools: `list_projects`, `get_project`, `add_p
 
 ### Requirement: Tool input schemas
 
-Every tool inputSchema SHALL be a JSON Schema object. `list_projects` uses `{}` (empty schema, no `type` field); all other tools declare `"type": "object"` with `properties` and `required`.
+Every tool inputSchema SHALL be a JSON Schema object with `"type": "object"` explicitly set. Empty schemas MUST use `{"type": "object", "properties": {}}` - a bare `{}` is forbidden because strict MCP clients (Hermes pydantic validation of `ListToolsResult`) reject the entire `tools/list` response when any single schema lacks `type`.
+
+#### Scenario: List tools passes strict validation
+
+- **WHEN** an initialized client sends `tools/list`
+- **THEN** every tool entry carries `inputSchema.type == "object"` and the response validates against the MCP `ListToolsResult` schema
 
 #### Scenario: Call list_projects
 

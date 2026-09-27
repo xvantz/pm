@@ -1,19 +1,6 @@
-# Project Store Specification
+# project-store Specification (delta)
 
-## Purpose
-
-`FileStore` (`internal/store/filestore.go`) persists projects, steps, blockers and decisions as YAML files under a root directory (e.g. `./pm/projects`), coordinated between concurrent CLI and MCP processes. Shared contract in `internal/store/store.go`, `internal/types/types.go`.
-
-## Requirements
-
-### Requirement: Atomic durable writes
-
-All write operations SHALL be atomic and durable: write to a temp file, fsync to disk, then rename into place. Concurrent writers coordinate via POSIX flock on the project directory.
-
-#### Scenario: Concurrent CLI and MCP writes
-
-- **WHEN** `pm` CLI and `pm-mcp` write to the same project concurrently
-- **THEN** no partial or torn YAML files appear; one write wins cleanly per file
+## MODIFIED Requirements
 
 ### Requirement: Project resolution
 

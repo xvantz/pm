@@ -1,16 +1,18 @@
-# Spec: pm-serve HTTP API
+# Spec: pm-serve HTTP API (delta)
 
-## Requirement: Single writer
+## ADDED Requirements
+
+### Requirement: Single writer
 
 The daemon SHALL be the only process touching the YAML store files.
 All mutations go through HTTP handlers that hold a process-wide mutex.
 
-### Scenario: concurrent writes serialize
+#### Scenario: concurrent writes serialize
 
 - WHEN two POSTs arrive simultaneously
 - THEN both succeed, files contain both writes, no partial YAML
 
-## Requirement: Bearer auth
+### Requirement: Bearer auth
 
 Every request under `/api/*` SHALL present
 `Authorization: Bearer <token>`. The token comes from `--token` flag
@@ -19,17 +21,17 @@ Missing or wrong token yields `401` with JSON error body.
 The token is provisioned everywhere it is needed: the daemon via sops
 `pm_env`, the user shell and MCP from the same secret. No exceptions.
 
-### Scenario: no token
+#### Scenario: no token
 
 - WHEN `GET /api/projects` without header
 - THEN `401 {"error":"unauthorized"}`
 
-### Scenario: health without auth
+#### Scenario: health without auth
 
 - WHEN `GET /healthz`
 - THEN `200 {"status":"ok","version":"..."}` without any header
 
-## Requirement: Remote-only clients
+### Requirement: Remote-only clients
 
 CLI commands and pm-mcp SHALL NOT touch YAML files (except `pm serve`,
 `pm doctor`, and `pm init`, which are host-local by nature).
@@ -38,12 +40,12 @@ the serve convention (`PM_API` overrides), token from `PM_TOKEN`.
 `--dir` flags for data paths are removed; `pm serve --dir` stays
 (the daemon owns the files).
 
-### Scenario: no daemon
+#### Scenario: no daemon
 
 - WHEN `pm project list` runs with nothing on 127.0.0.1:8472
 - THEN a connection error names the address (no silent file fallback)
 
-## Requirement: Endpoints mirror the store
+### Requirement: Endpoints mirror the store
 
 Reads return the same JSON shapes as MCP read tools:
 
@@ -72,13 +74,23 @@ Errors are JSON `{"error": msg}` with codes:
 `400` bad body, `401` auth, `404` unknown ref, `409` duplicate,
 `422` lifecycle violation, `500` store failure.
 
-## Requirement: CLI entry
+#### Scenario: lifecycle violation surfaces as 422
+
+- **WHEN** the client sends `done` for a step that is not in review
+- **THEN** the server answers `422` with a JSON error body
+
+### Requirement: CLI entry
 
 `pm serve [--addr 127.0.0.1:8472] [--dir PATH] [--token ...]`
 starts the daemon. `--dir` overrides `PM_DIR`. Missing token is a
 startup error telling the user to set `PM_TOKEN`.
 
-## Requirement: Nix options
+#### Scenario: missing token fails fast
+
+- **WHEN** `pm serve` starts with no `--token` and empty `PM_TOKEN`
+- **THEN** it exits with an error naming the missing token
+
+### Requirement: Nix options
 
 The flake module SHALL expose `services.pm.listenAddr`
 (default `127.0.0.1:8472`) and `services.pm.environmentFile`
@@ -93,7 +105,7 @@ The module also provisions `PM_TOKEN` into login shells itself
 (`programs.zsh/bash.interactiveShellInit` sourcing the same env file
 at runtime): no hand edits to shell configs needed.
 
-### Scenario: host enables daemon
+#### Scenario: host enables daemon
 
 - WHEN `services.pm = { enable = true; environmentFile = <pm_env path>; }`
 - THEN after `nixos-rebuild`, `curl localhost:8472/healthz` answers
