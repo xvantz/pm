@@ -119,8 +119,9 @@
               after = [ "network.target" ];
               serviceConfig = {
                 Type = "simple";
-                DynamicUser = true;
-                StateDirectory = "pm-serve";
+                # Runs as xvantz: the data lives in $HOME, a DynamicUser
+                # cannot read it (fails with "projects dir not found").
+                User = "xvantz";
                 Restart = "always";
                 RestartSec = "5";
                 EnvironmentFile = cfg.environmentFile;
