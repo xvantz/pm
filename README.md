@@ -169,6 +169,9 @@ curl -H "Authorization: Bearer $PM_TOKEN" localhost:8472/api/projects
 Codes: 400 body, 401 auth, 404 ref, 409 duplicate, 422 lifecycle, 500 store.
 Listens on localhost by default. Expose outward only via Tailscale, never 0.0.0.0.
 
+Auth: loopback clients (same machine) bypass the token — local CLI just
+works. Everything off-loopback needs `Authorization: Bearer $PM_TOKEN`.
+
 Client-provided project UUIDs are honored (CLI/MCP pre-assign one and print it
 in confirmation texts); the server validates the format (400) and rejects
 collisions (409). Step numbers stay server-assigned.

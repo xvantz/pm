@@ -21,9 +21,7 @@ func doctorLive() error {
 
 	token := strings.TrimSpace(os.Getenv("PM_TOKEN"))
 	if token == "" {
-		fmt.Println("  ❌ PM_TOKEN пуст: демон ответит 401 на все /api/*.")
-		fmt.Println("     Задай токен тем же, что у демона: export PM_TOKEN=...")
-		bad++
+		fmt.Println("  ⚠ PM_TOKEN пуст: с loopback пустит без токена, из сети будет 401.")
 	} else {
 		fmt.Println("  ✅ PM_TOKEN задан.")
 	}
@@ -44,9 +42,11 @@ func doctorLive() error {
 		fmt.Printf("  ✅ Демон жив (healthz ok, версия %s).\n", cl.Version())
 		_ = status
 		if _, err := cl.ListProjects(); err != nil {
-			fmt.Printf("  ❌ Auth не прошел: %v\n", err)
-			fmt.Println("     Сверь PM_TOKEN с токеном демона.")
+			fmt.Printf("  ❌ Проекты не читаются: %v\n", err)
+			fmt.Println("     Loopback без токена закрыт, а PM_TOKEN не подошел: сверь с токеном демона.")
 			bad++
+		} else if token == "" {
+			fmt.Println("  ✅ Чтение без токена: loopback доверенный.")
 		} else {
 			fmt.Println("  ✅ Auth прошел: проекты читаются.")
 		}
