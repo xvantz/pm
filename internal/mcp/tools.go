@@ -37,7 +37,7 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "add_project",
-			Description: "Create a new project",
+			Description: "Create a new project with title, goal and tags (status idea)",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -51,7 +51,7 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "add_step",
-			Description: "Add a step to a project",
+			Description: "Add a step to a project (starts as todo, then start/review/done)",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -103,7 +103,7 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "add_blocker",
-			Description: "Add a blocker to a step",
+			Description: "Add a blocker to a step (blocks it until resolved)",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -132,7 +132,7 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "add_decision",
-			Description: "Record an architectural or project decision",
+			Description: "Record an architectural or project decision with rationale",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -191,6 +191,31 @@ func RegisterPMTools(s *Server, st store.Store) {
 				"required": ["project_id"]
 			}`),
 			Handler: makeHandler(st, handleListDecisions),
+		},
+		{
+			Name:        "close_project",
+			Description: "Bulk-close a finished project in one call: force-completes all open steps, marks it completed, records the reason. Use instead of N start/review/done calls.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"project_id": {"type": "string", "description": "Project number or UUID"},
+					"reason": {"type": "string", "description": "Why it is closed, recorded as a decision (optional)"}
+				},
+				"required": ["project_id"]
+			}`),
+			Handler: makeHandler(st, handleCloseProject),
+		},
+		{
+			Name:        "delete_project",
+			Description: "Move a project to trash (recoverable via trash restore). For finished work prefer close_project.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"project_id": {"type": "string", "description": "Project number or UUID"}
+				},
+				"required": ["project_id"]
+			}`),
+			Handler: makeHandler(st, handleDeleteProject),
 		},
 	}
 
@@ -823,4 +848,46 @@ func handleListDecisions(st store.Store, ctx context.Context, args json.RawMessa
 		return "", fmt.Errorf("marshal response: %w", err)
 	}
 	return string(data), nil
+}
+
+func handleCloseProject(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		ProjectID string `json:"project_id"`
+		Reason    string `json:"reason,omitempty"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "", fmt.Errorf("invalid args: %w", err)
+	}
+	if params.ProjectID == "" {
+		return "", fmt.Errorf("project_id is required")
+	}
+	if err := st.CloseProject(params.ProjectID, params.Reason); err != nil {
+		return "", err
+	}
+	pd, err := st.ResolveProject(params.ProjectID)
+	if err != nil {
+		return "", err
+	}
+	reason := params.Reason
+	if reason == "" {
+		reason = "bulk close"
+	}
+	return fmt.Sprintf("Project #%d %q closed (%s).", pd.Project.Number, pd.Project.Title, reason), nil
+}
+
+func handleDeleteProject(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		ProjectID string `json:"project_id"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "", fmt.Errorf("invalid args: %w", err)
+	}
+	pd, err := st.ResolveProject(params.ProjectID)
+	if err != nil {
+		return "", err
+	}
+	if err := st.DeleteProject(pd.Project.ID); err != nil {
+		return "", fmt.Errorf("delete project: %w", err)
+	}
+	return fmt.Sprintf("Project #%d %q moved to trash.", pd.Project.Number, pd.Project.Title), nil
 }

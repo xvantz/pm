@@ -97,6 +97,7 @@ pm step done 1 setup-caddy                       # finish (review only)
 pm blocker add --reason "no budget" 1 setup-caddy "Buy router"
 pm blocker resolve 1 setup-caddy router          # unblock
 pm decision add --reason "one binary" 1 "Go as language"
+pm project close 1 "shipped"                 # bulk close, no N calls
 pm doctor                                        # integrity check (host-local, reads files)
 pm trash list                                    # trashed projects
 pm trash restore <name>                          # restore
@@ -118,7 +119,9 @@ pm-mcp is a JSON-RPC 2.0 server over stdio with NDJSON framing. 13 tools:
 | `done_step` | finish (review only) |
 | `add_blocker` | add a blocker |
 | `resolve_blocker` | resolve a blocker |
-| `add_decision` | record a decision |
+| `add_decision` | record a decision with rationale |
+| `close_project` | bulk-close: steps done, completed, reason kept |
+| `delete_project` | move to trash (prefer close for finished work) |
 | `get_briefing` | generate a digest |
 | `list_steps` | project steps (JSON) |
 | `list_blockers` | blockers (JSON) |

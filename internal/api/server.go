@@ -43,6 +43,7 @@ func New(st store.Store, token string) *Server {
 	s.mux.HandleFunc("GET /api/projects/{ref}", s.auth(s.handleProjectGet))
 	s.mux.HandleFunc("PATCH /api/projects/{ref}", s.auth(s.handleProjectPatch))
 	s.mux.HandleFunc("DELETE /api/projects/{ref}", s.auth(s.handleProjectDelete))
+	s.mux.HandleFunc("POST /api/projects/{ref}/close", s.auth(s.handleProjectClose))
 	s.mux.HandleFunc("GET /api/projects/{ref}/steps", s.auth(s.handleStepsList))
 	s.mux.HandleFunc("POST /api/projects/{ref}/steps", s.auth(s.handleStepCreate))
 	s.mux.HandleFunc("POST /api/projects/{ref}/steps/{step}/{action}", s.auth(s.handleStepAction))
@@ -256,6 +257,36 @@ func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"trashed": pd.Project.Title})
+}
+
+type closeProjectReq struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+func (s *Server) handleProjectClose(w http.ResponseWriter, r *http.Request) {
+	var req closeProjectReq
+	if r.ContentLength != 0 {
+		if !decode(w, r, &req) {
+			return
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	if err := s.store.CloseProject(pd.Project.ID, req.Reason); err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	closed, err := s.store.GetProject(pd.Project.ID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, closed.Project)
 }
 
 // --- steps ---

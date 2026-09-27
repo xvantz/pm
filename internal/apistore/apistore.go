@@ -177,6 +177,11 @@ func (s *Store) DeleteProject(id string) error {
 	return err
 }
 
+func (s *Store) CloseProject(ref, reason string) error {
+	_, err := s.c.CloseProject(ref, reason)
+	return err
+}
+
 func (s *Store) TrashList() ([]string, error) {
 	return s.c.TrashList()
 }
