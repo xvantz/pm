@@ -155,5 +155,6 @@ func cmdDoctor(args []string) error {
 
 	fmt.Println()
 	fmt.Println("✅ Хранилище в порядке.")
-	return nil
+
+	return doctorLive()
 }
