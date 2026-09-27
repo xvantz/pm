@@ -79,14 +79,18 @@ startup error telling the user to set `PM_TOKEN`.
 ## Requirement: Nix options
 
 The flake module SHALL expose `services.pm.listenAddr`
-(default `127.0.0.1:8472`) and `services.pm.tokenFile`
-(default null, sops-managed path). When `tokenFile` is set, a
+(default `127.0.0.1:8472`) and `services.pm.environmentFile`
+(sops env file with `PM_TOKEN`, same convention as `hermes_env`).
+An enabled service without `environmentFile` fails the build via
+`assertions` with exact fix instructions. When set, a
 `pm-serve` systemd service is created: `restart=always`,
-token via `LoadCredential` (never in nix store or unit text),
+token via `EnvironmentFile` (never in nix store or unit text),
 `PM_DIR` from `services.pm.dataDir`.
 
 ### Scenario: host enables daemon
 
-- WHEN `services.pm = { enable = true; tokenFile = /run/secrets/pm_token; }`
+- WHEN `services.pm = { enable = true; environmentFile = <pm_env path>; }`
 - THEN after `nixos-rebuild`, `curl localhost:8472/healthz` answers
   and authed `/api/projects` round-trips
+- WHEN `services.pm = { enable = true; }` without `environmentFile`
+- THEN the build fails with an assertion naming the missing option
