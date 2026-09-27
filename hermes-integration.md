@@ -19,7 +19,7 @@ In the root `flake.nix` (dotfiles):
           services.pm = {
             enable = true;
             dataDir = "/home/xvantz/Documents/pm";  # host path, the default
-            tokenFile = "/run/secrets/pm_token";     # sops-managed Bearer token
+            environmentFile = config.sops.secrets.pm_env.path;
             # listenAddr = "127.0.0.1:8472";         # the default
           };
         }
@@ -27,9 +27,24 @@ In the root `flake.nix` (dotfiles):
 }
 ```
 
+Declare the secret next to the service (same pattern as `hermes_env`):
+
+```nix
+sops.secrets.pm_env = {
+  owner = "xvantz";
+  restartUnits = [ "pm-serve.service" ];
+};
+```
+
+And add `PM_TOKEN=<token>` to `secrets.yaml` via sops on the host
+(the age key lives outside containers, so this step is host-only).
+
 This creates the `pm-serve` systemd service (`restart=always`): the single
-writer owning the YAML. Token reaches the daemon via `LoadCredential` —
-never through the nix store or unit text.
+writer owning the YAML. Token reaches the daemon via `EnvironmentFile`
+(sops-managed env file, same convention as `hermes_env`) —
+never through the nix store or unit text. Enabling the service without
+`environmentFile` fails the build with an assertion telling exactly
+what to add.
 
 ## MCP server in Hermes
 

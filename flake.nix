@@ -80,22 +80,40 @@
               description = "Address for `pm serve` daemon (single writer HTTP API). Keep localhost unless behind Tailscale. Never 0.0.0.0 to the world.";
             };
 
-            tokenFile = mkOption {
+            environmentFile = mkOption {
               type = types.nullOr types.path;
               default = null;
-              example = "/run/secrets/pm_token";
-              description = "File containing the Bearer token for `pm serve`. Manage via sops-nix. When null, the pm-serve systemd service is not created.";
+              example = literalExpression "config.sops.secrets.pm_env.path";
+              description = ''
+                Env file with PM_TOKEN for `pm serve` (same convention as
+                hermes_env/forgejo_env: sops secret, KEY=value lines).
+                The daemon is useless without a token, so an enabled service
+                without this file fails the build (see assertions).
+              '';
             };
           };
 
           config = mkIf cfg.enable {
+            assertions = [
+              {
+                assertion = cfg.environmentFile != null;
+                message = ''
+                  services.pm.environmentFile is not set.
+                  Add a sops secret with PM_TOKEN, e.g.:
+                    sops.secrets.pm_env = { owner = "xvantz"; restartUnits = [ "pm-serve.service" ]; };
+                  and point services.pm.environmentFile at config.sops.secrets.pm_env.path,
+                  then put PM_TOKEN=... into secrets.yaml (sops).
+                '';
+              }
+            ];
+
             environment.systemPackages = [ cfg.package ];
             environment.sessionVariables.PM_DIR = cfg.dataDir;
             environment.interactiveShellInit = ''
               export PM_DIR="${cfg.dataDir}"
             '';
 
-            systemd.services.pm-serve = mkIf (cfg.tokenFile != null) {
+            systemd.services.pm-serve = mkIf (cfg.environmentFile != null) {
               description = "PM Project Memory daemon (single writer API)";
               wantedBy = [ "multi-user.target" ];
               after = [ "network.target" ];
@@ -105,11 +123,9 @@
                 Type = "simple";
                 DynamicUser = true;
                 StateDirectory = "pm-serve";
-                # Token via file (sops-managed), never in nix store or unit text.
-                LoadCredential = "pm-token:${cfg.tokenFile}";
+                EnvironmentFile = cfg.environmentFile;
               };
               script = ''
-                export PM_TOKEN="$(cat "$CREDENTIALS_DIRECTORY/pm-token")"
                 export PM_DIR="${cfg.dataDir}"
                 exec ${cfg.package}/bin/pm serve --addr "${cfg.listenAddr}"
               '';
