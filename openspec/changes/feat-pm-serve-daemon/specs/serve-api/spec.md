@@ -84,10 +84,14 @@ The flake module SHALL expose `services.pm.listenAddr`
 (default `127.0.0.1:8472`) and `services.pm.environmentFile`
 (sops env file with `PM_TOKEN`, same convention as `hermes_env`).
 An enabled service without `environmentFile` fails the build via
-`assertions` with exact fix instructions. When set, a
+`assertions` with exact fix instructions. `services.pm.user` is REQUIRED
+(no default). When set, a
 `pm-serve` systemd service is created: `restart=always`,
 token via `EnvironmentFile` (never in nix store or unit text),
 `PM_DIR` from `services.pm.dataDir`.
+The module also provisions `PM_TOKEN` into login shells itself
+(`programs.zsh/bash.interactiveShellInit` sourcing the same env file
+at runtime): no hand edits to shell configs needed.
 
 ### Scenario: host enables daemon
 
