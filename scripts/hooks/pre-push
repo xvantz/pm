@@ -3,5 +3,9 @@
 # Install: git config core.hooksPath scripts/hooks
 set -eu
 export CGO_ENABLED=0
+# Branch deletions carry no new commits: no gates to run.
+if ! grep -qv '^0\{40\} ' /dev/stdin 2>/dev/null; then
+  exit 0
+fi
 go vet ./... >&2
 go test ./... -count=1 >&2
