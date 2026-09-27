@@ -34,9 +34,9 @@ type Server struct {
 
 // Tool defines an MCP tool: its schema and handler.
 type Tool struct {
-	Name        string                                         `json:"name"`
-	Description string                                         `json:"description"`
-	InputSchema json.RawMessage                                `json:"inputSchema"`
+	Name        string                                                 `json:"name"`
+	Description string                                                 `json:"description"`
+	InputSchema json.RawMessage                                        `json:"inputSchema"`
 	Handler     func(context.Context, json.RawMessage) (string, error) `json:"-"`
 }
 
@@ -222,7 +222,7 @@ func writeMessage(w io.Writer, msg jsonrpcMessage) {
 //   - Content-Length framed: Content-Length: N\r\n\r\n<N bytes>
 //   - Newline-delimited JSON: {"jsonrpc":"2.0",...}\n
 type messageReader struct {
-	reader *bufio.Reader
+	reader  *bufio.Reader
 	bodyBuf []byte
 }
 

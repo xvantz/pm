@@ -53,14 +53,14 @@ type Step struct {
 }
 
 type Blocker struct {
-	ID        string         `yaml:"id" json:"id"`
-	Title     string         `yaml:"title" json:"title"`
-	Reason    string         `yaml:"reason,omitempty" json:"reason,omitempty"`
-	Status    BlockerStatus  `yaml:"status" json:"status"`
-	ProjectID string         `yaml:"project_id" json:"project_id"`
-	StepID    string         `yaml:"step_id" json:"step_id"`
-	CreatedAt string         `yaml:"created_at,omitempty" json:"created_at,omitempty"`
-	UpdatedAt string         `yaml:"updated_at,omitempty" json:"updated_at,omitempty"`
+	ID        string        `yaml:"id" json:"id"`
+	Title     string        `yaml:"title" json:"title"`
+	Reason    string        `yaml:"reason,omitempty" json:"reason,omitempty"`
+	Status    BlockerStatus `yaml:"status" json:"status"`
+	ProjectID string        `yaml:"project_id" json:"project_id"`
+	StepID    string        `yaml:"step_id" json:"step_id"`
+	CreatedAt string        `yaml:"created_at,omitempty" json:"created_at,omitempty"`
+	UpdatedAt string        `yaml:"updated_at,omitempty" json:"updated_at,omitempty"`
 }
 
 type Decision struct {

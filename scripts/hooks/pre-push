@@ -1,0 +1,7 @@
+#!/bin/sh
+# pre-push: vet + full tests (CGO off: no gcc in minimal envs).
+# Install: git config core.hooksPath scripts/hooks
+set -eu
+export CGO_ENABLED=0
+go vet ./... >&2
+go test ./... -count=1 >&2

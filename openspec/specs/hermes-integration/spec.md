@@ -8,12 +8,17 @@ Contract between the `pm` Nix package (`flake.nix`, `nixosModules.default` with 
 
 ### Requirement: Launch contract
 
-Hermes SHALL launch `pm-mcp` as `${config.services.pm.package}/bin/pm-mcp --dir /data/pm` via the `pm-diag` wrapper script. The data directory inside the Hermes container is `/data/pm`, bind-mounted from the host data dir.
+Hermes SHALL launch `pm-mcp` as `${config.services.pm.package}/bin/pm-mcp --dir ${config.services.pm.containerDataDir}` with no hardcoded paths in `hermes.nix`. `containerDataDir` (default `/data/pm`) is the bind-mount target of host `dataDir` inside the container; `PM_DIR` env remains a dev-only override. The flake MUST build from a clean checkout (`vendorHash` real, no placeholders).
 
 #### Scenario: Server starts with data present
 
 - **WHEN** Hermes spawns the `pm` MCP server
-- **THEN** the server initializes against `/data/pm` and answers `tools/list`
+- **THEN** the server initializes against the configured container data dir and answers `tools/list`
+
+#### Scenario: Clean build
+
+- **WHEN** running `nix build .#pm` on a fresh clone
+- **THEN** the build succeeds and both binaries respond to `--version` with the ldflags-baked version
 
 ### Requirement: Stderr discipline
 
@@ -32,3 +37,12 @@ Both `pm` and `pm-mcp` SHALL report their version (`--version`, baked via `-ldfl
 
 - **WHEN** the operator runs `pm --version` on the host
 - **THEN** the output names the exact deployed revision
+
+### Requirement: Wrapper stderr budget
+
+The `pm-diag` wrapper SHALL write at most one diagnostic line to stderr per startup (server name and version). Full environment dumps (`env`, `PATH`) are forbidden: they bloat `mcp-stderr.log` (observed 147MB) and risk leaking secrets into plaintext logs.
+
+#### Scenario: Restart storm stays quiet
+
+- **WHEN** Hermes restarts the `pm` MCP server 10 times in a row
+- **THEN** `mcp-stderr.log` grows by at most ~10 lines and contains no `*_TOKEN` values

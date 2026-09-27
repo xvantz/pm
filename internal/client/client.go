@@ -9,19 +9,19 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/xvantz/pm/internal/briefing"
+	"github.com/xvantz/pm/internal/types"
 	"io"
 	"net/http"
 	"net/url"
-	"github.com/xvantz/pm/internal/briefing"
-	"github.com/xvantz/pm/internal/types"
 )
 
 // Client talks to one `pm serve` instance.
 type Client struct {
-	base   string
-	token  string
-	http   *http.Client
-	ver    string // cached /healthz version
+	base  string
+	token string
+	http  *http.Client
+	ver   string // cached /healthz version
 }
 
 // New returns a Client for base (e.g. http://127.0.0.1:8472).
