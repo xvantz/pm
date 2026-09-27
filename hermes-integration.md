@@ -1,13 +1,13 @@
-# Интеграция PM с Hermes Agent
+# PM + Hermes Agent integration
 
-## Подключение флейка
+## Flake input
 
-В корневом `flake.nix` (dotfiles):
+In the root `flake.nix` (dotfiles):
 
 ```nix
 {
   inputs = {
-    # ... остальные inputs ...
+    # ... other inputs ...
 
     pm.url = "git+https://git.827482.xyz/xvantz/pm.git";
   };
@@ -18,50 +18,60 @@
         {
           services.pm = {
             enable = true;
-            dataDir = "/home/xvantz/Documents/pm";  # хост-путь, по умолчанию
-            # containerDataDir = "/data/pm";         # путь ВНУТРИ контейнера Hermes, по умолчанию
+            dataDir = "/home/xvantz/Documents/pm";  # host path, the default
+            tokenFile = "/run/secrets/pm_token";     # sops-managed Bearer token
+            # listenAddr = "127.0.0.1:8472";         # the default
           };
         }
   };
 }
 ```
 
-## Настройка MCP сервера в Hermes
+This creates the `pm-serve` systemd service (`restart=always`): the single
+writer owning the YAML. Token reaches the daemon via `LoadCredential` —
+never through the nix store or unit text.
 
-В `modules/system/hermes/hermes.nix`:
+## MCP server in Hermes
+
+In `modules/system/hermes/hermes.nix`:
 
 ```nix
 { config, ... }: {
   services.hermes-agent.mcpServers.pm = {
     enabled = true;
-    command = "${pkgs.writeShellScriptBin "pm-diag" ''
-      echo "starting pm-mcp" >&2
-      exec ${config.services.pm.package}/bin/pm-mcp --dir ${config.services.pm.containerDataDir}
-    ''}/bin/pm-diag";
+    command = "${config.services.pm.package}/bin/pm-mcp";
+    env.PM_API = "http://127.0.0.1:8472";
+    env.PM_TOKEN = "\${PM_TOKEN}";
   };
 }
 ```
 
-Правила:
+No data volume mounts. No `--dir`. The container needs only address + token.
 
-- `dataDir` - путь на хосте (bind-mount источник), `containerDataDir` - путь внутри контейнера (mount target). Не путать.
-- Wrapper пишет в stderr максимум одну строку на старт. Полные дампы окружения (`env`, `PATH`) запрещены: раздувают `mcp-stderr.log` и светят токены.
-- stdout строго для JSON-RPC фреймов.
+Rules:
 
-После `nixos-rebuild switch`:
+- `dataDir` is the host path and only the daemon reads it. Nothing else mounts it.
+- `pm-diag` wrapper (if used) prints at most one stderr line on start. Full
+  environment dumps (`env`, `PATH`) are forbidden: they bloat `mcp-stderr.log`
+  and leak tokens.
+- stdout is strictly for JSON-RPC frames.
+
+After `nixos-rebuild switch`:
 
 ```bash
 sudo systemctl restart hermes-agent
 ```
 
-Проверка:
+Checks:
 
 ```bash
-pm --version        # версия пакета с хоста
-pm-mcp --version    # то же для MCP-сервера
+pm --version        # package version from the host
+pm-mcp --version    # same for the MCP server
+curl localhost:8472/healthz
+curl -H "Authorization: Bearer $PM_TOKEN" localhost:8472/api/projects
 ```
 
-В Hermes появятся инструменты с префиксом `mcp_pm_` (14 шт.):
+Hermes gains the tools with the `mcp_pm_` prefix (13 total):
 - `list_projects`, `get_project`, `add_project`
 - `add_step`, `start_step`, `review_step`, `done_step`
 - `add_blocker`, `resolve_blocker`
