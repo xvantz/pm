@@ -76,10 +76,12 @@
 
             user = mkOption {
               type = types.str;
-              default = "xvantz";
+              example = "xvantz";
               description = ''
-                User the pm-serve daemon runs as. Must read dataDir:
-                keep it as the owner of that directory.
+                User the pm-serve daemon runs as (REQUIRED, no default:
+                a system module cannot guess whose data it serves).
+                Must read dataDir: keep it as the owner of that directory.
+                The same user gets PM_TOKEN in login shells (see below).
               '';
             };
 
@@ -120,6 +122,21 @@
             environment.sessionVariables.PM_DIR = cfg.dataDir;
             environment.interactiveShellInit = ''
               export PM_DIR="${cfg.dataDir}"
+            '';
+
+            # The service provisions PM_TOKEN into the user's login shells:
+            # sourced at runtime from the same sops env file the daemon
+            # uses. Nothing secret touches the nix store; no hand edits
+            # to shell configs needed.
+            programs.zsh.interactiveShellInit = mkIf (cfg.environmentFile != null) ''
+              if [[ -r "${cfg.environmentFile}" ]]; then
+                set -a; source "${cfg.environmentFile}"; set +a
+              fi
+            '';
+            programs.bash.interactiveShellInit = mkIf (cfg.environmentFile != null) ''
+              if [[ -r "${cfg.environmentFile}" ]]; then
+                set -a; source "${cfg.environmentFile}"; set +a
+              fi
             '';
 
             systemd.services.pm-serve = mkIf (cfg.environmentFile != null) {
