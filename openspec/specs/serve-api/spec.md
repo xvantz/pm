@@ -1,7 +1,7 @@
 # serve-api Specification
 
 ## Purpose
-TBD - created by archiving change feat-pm-serve-daemon. Update Purpose after archive.
+`pm serve` is the single-writer HTTP daemon owning the YAML store: CLI and MCP talk to it over localhost with a Bearer token instead of touching files, so concurrent writes serialize and validation lives in one place.
 
 ## Requirements
 

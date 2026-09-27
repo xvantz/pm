@@ -200,9 +200,9 @@ func (s *Server) handleProjectGet(w http.ResponseWriter, r *http.Request) {
 }
 
 type patchProjectReq struct {
-	Goal   *string             `json:"goal,omitempty"`
+	Goal   *string              `json:"goal,omitempty"`
 	Status *types.ProjectStatus `json:"status,omitempty"`
-	Tags   []string            `json:"tags,omitempty"`
+	Tags   []string             `json:"tags,omitempty"`
 }
 
 func (s *Server) handleProjectPatch(w http.ResponseWriter, r *http.Request) {

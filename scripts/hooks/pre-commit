@@ -1,0 +1,12 @@
+#!/bin/sh
+# pre-commit: gofmt gate + openspec strict validation.
+# Install: git config core.hooksPath scripts/hooks
+set -eu
+bad=$(gofmt -l cmd internal 2>/dev/null || true)
+if [ -n "$bad" ]; then
+  echo "pre-commit: unformatted files:" >&2
+  echo "$bad" >&2
+  echo "run: gofmt -w <files>" >&2
+  exit 1
+fi
+corepack pnpm dlx @fission-ai/openspec@latest validate --all --strict >&2

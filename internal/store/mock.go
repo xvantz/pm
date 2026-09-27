@@ -198,7 +198,9 @@ func (s *MockStore) DeleteProject(id string) error {
 
 func (m *MockStore) TrashList() ([]string, error) { return nil, nil }
 
-func (m *MockStore) TrashRestore(trashName string) error { return fmt.Errorf("not implemented in mock") }
+func (m *MockStore) TrashRestore(trashName string) error {
+	return fmt.Errorf("not implemented in mock")
+}
 
 func (m *MockStore) TrashClean() error { return nil }
 
@@ -265,10 +267,10 @@ func (s *MockStore) seed() {
 	s.projects["0196f1a2-b3c4-7d5e-8f6a-9b0c1d2e3f4a"] = &types.ProjectData{
 		Project: types.Project{
 			ID: "0196f1a2-b3c4-7d5e-8f6a-9b0c1d2e3f4a", Number: 1,
-			Title: "AdGuard Home",
-			Goal:  "Развернуть домашний DNS сервер с фильтрацией рекламы",
-			Status: types.StatusActive,
-			Tags:   []string{"infrastructure", "homelab", "networking"},
+			Title:     "AdGuard Home",
+			Goal:      "Развернуть домашний DNS сервер с фильтрацией рекламы",
+			Status:    types.StatusActive,
+			Tags:      []string{"infrastructure", "homelab", "networking"},
 			CreatedAt: "2026-06-10", UpdatedAt: today,
 		},
 		Steps: []types.Step{
@@ -292,10 +294,10 @@ func (s *MockStore) seed() {
 	s.projects["0196f1a3-c4d5-7e6f-8a9b-0c1d2e3f4a5b"] = &types.ProjectData{
 		Project: types.Project{
 			ID: "0196f1a3-c4d5-7e6f-8a9b-0c1d2e3f4a5b", Number: 2,
-			Title: "Project Memory (PM)",
-			Goal:  "Создать систему долговременной памяти проектов",
-			Status: types.StatusActive,
-			Tags:   []string{"tooling", "infrastructure"},
+			Title:     "Project Memory (PM)",
+			Goal:      "Создать систему долговременной памяти проектов",
+			Status:    types.StatusActive,
+			Tags:      []string{"tooling", "infrastructure"},
 			CreatedAt: "2026-06-13", UpdatedAt: today,
 		},
 		Steps: []types.Step{
@@ -317,10 +319,10 @@ func (s *MockStore) seed() {
 	s.projects["0196f1a4-d5e6-7f8a-9b0c-1d2e3f4a5b6c"] = &types.ProjectData{
 		Project: types.Project{
 			ID: "0196f1a4-d5e6-7f8a-9b0c-1d2e3f4a5b6c", Number: 3,
-			Title: "Navidrome Music Collector",
-			Goal:  "Python-сервис для авто-пополнения музыки с обогащёнными метаданными",
-			Status: types.StatusIdea,
-			Tags:   []string{"infrastructure", "media"},
+			Title:     "Navidrome Music Collector",
+			Goal:      "Python-сервис для авто-пополнения музыки с обогащёнными метаданными",
+			Status:    types.StatusIdea,
+			Tags:      []string{"infrastructure", "media"},
 			CreatedAt: "2026-06-12", UpdatedAt: yesterday,
 		},
 		Steps: []types.Step{
@@ -333,10 +335,10 @@ func (s *MockStore) seed() {
 	s.projects["0196f1a5-e6f7-7a8b-9c0d-1e2f3a4b5c6d"] = &types.ProjectData{
 		Project: types.Project{
 			ID: "0196f1a5-e6f7-7a8b-9c0d-1e2f3a4b5c6d", Number: 4,
-			Title: "DNS Инфраструктура",
-			Goal:  "Избавить все устройства от рекламы через свой DNS-сервер",
-			Status: types.StatusActive,
-			Tags:   []string{"infrastructure", "homelab", "networking", "dns"},
+			Title:     "DNS Инфраструктура",
+			Goal:      "Избавить все устройства от рекламы через свой DNS-сервер",
+			Status:    types.StatusActive,
+			Tags:      []string{"infrastructure", "homelab", "networking", "dns"},
 			CreatedAt: "2026-06-08", UpdatedAt: today,
 		},
 		Steps: []types.Step{
@@ -361,10 +363,10 @@ func (s *MockStore) seed() {
 	s.projects["0196f1a6-f7a8-7b9c-0d1e-2f3a4b5c6d7e"] = &types.ProjectData{
 		Project: types.Project{
 			ID: "0196f1a6-f7a8-7b9c-0d1e-2f3a4b5c6d7e", Number: 5,
-			Title: "Автономная кузница кода Forgejo + Nix",
-			Goal:  "Полностью автономная git-инфраструктура на NixOS с CI/CD",
-			Status: types.StatusActive,
-			Tags:   []string{"infrastructure", "devops", "selfhosted"},
+			Title:     "Автономная кузница кода Forgejo + Nix",
+			Goal:      "Полностью автономная git-инфраструктура на NixOS с CI/CD",
+			Status:    types.StatusActive,
+			Tags:      []string{"infrastructure", "devops", "selfhosted"},
 			CreatedAt: "2026-06-10", UpdatedAt: yesterday,
 		},
 		Steps: []types.Step{
@@ -379,10 +381,10 @@ func (s *MockStore) seed() {
 	s.projects["0196f1a7-8a9b-7c0d-1e2f-3a4b5c6d7e8f"] = &types.ProjectData{
 		Project: types.Project{
 			ID: "0196f1a7-8a9b-7c0d-1e2f-3a4b5c6d7e8f", Number: 6,
-			Title: "KeePassXC Password Manager",
-			Goal:  "Настроить менеджер паролей с passkey support",
-			Status: types.StatusPaused,
-			Tags:   []string{"security", "tooling"},
+			Title:     "KeePassXC Password Manager",
+			Goal:      "Настроить менеджер паролей с passkey support",
+			Status:    types.StatusPaused,
+			Tags:      []string{"security", "tooling"},
 			CreatedAt: "2026-06-11", UpdatedAt: "2026-06-13",
 		},
 		Steps: []types.Step{

@@ -687,9 +687,9 @@ func handleGetBriefing(st store.Store, ctx context.Context, args json.RawMessage
 	}
 
 	cfg := briefing.Config{
-		Context:       ctx,
-		Store:         st,
-		Date:          params.Date,
+		Context: ctx,
+		Store:   st,
+		Date:    params.Date,
 	}
 	if params.ProjectID != "" {
 		cfg.FilterProject = params.ProjectID

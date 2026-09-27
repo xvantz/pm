@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/xvantz/pm/internal/apistore"
 	"github.com/xvantz/pm/internal/api"
+	"github.com/xvantz/pm/internal/apistore"
 	"github.com/xvantz/pm/internal/store"
 )
 

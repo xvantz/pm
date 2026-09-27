@@ -14,24 +14,24 @@ import (
 const dateFormat = "2006-01-02"
 
 type Briefing struct {
-	GeneratedAt string         `json:"generated_at"`
-	Date        string         `json:"date"`
-	Summary     Summary        `json:"summary"`
-	Sections    []Section      `json:"sections"`
+	GeneratedAt     string           `json:"generated_at"`
+	Date            string           `json:"date"`
+	Summary         Summary          `json:"summary"`
+	Sections        []Section        `json:"sections"`
 	Recommendations []Recommendation `json:"recommendations"`
 }
 
 type Summary struct {
-	ActiveProjects   int            `json:"active_projects"`
-	BlockedProjects  int            `json:"blocked_projects"`
-	CompletedProjects int           `json:"completed_projects"`
-	IdeaProjects     int            `json:"idea_projects"`
-	PausedProjects   int            `json:"paused_projects"`
-	TotalProjects    int            `json:"total_projects"`
+	ActiveProjects    int `json:"active_projects"`
+	BlockedProjects   int `json:"blocked_projects"`
+	CompletedProjects int `json:"completed_projects"`
+	IdeaProjects      int `json:"idea_projects"`
+	PausedProjects    int `json:"paused_projects"`
+	TotalProjects     int `json:"total_projects"`
 
-	StepsToday      int `json:"steps_today"`
-	StepsThisWeek   int `json:"steps_this_week"`
-	ProjectsMoved   int `json:"projects_advanced"`
+	StepsToday    int `json:"steps_today"`
+	StepsThisWeek int `json:"steps_this_week"`
+	ProjectsMoved int `json:"projects_advanced"`
 
 	LongLivedBlockers []BlockedItem `json:"long_lived_blockers,omitempty"`
 }

@@ -318,10 +318,10 @@ func (s *FileStore) DeleteBlocker(projectID, stepID, blockerID string) error {
 						steps[i].Status = types.StepTodo
 					}
 					if err := s.saveStep(steps[i]); err != nil {
-				return err
-			}
-			s.touchProject(projectID)
-			return nil
+						return err
+					}
+					s.touchProject(projectID)
+					return nil
 				}
 			}
 			return fmt.Errorf("blocker %q not found in step %q", blockerID, stepID)
