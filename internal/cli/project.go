@@ -17,6 +17,8 @@ func cmdProject(args []string) error {
 	switch sub {
 	case "create":
 		return cmdProjectCreate(args[1:])
+	case "close":
+		return cmdProjectClose(args[1:])
 	case "list":
 		return cmdProjectList(args[1:])
 	case "show":
@@ -239,5 +241,26 @@ func updateProject(ref string, fn func(p *types.Project)) error {
 	}
 
 	fmt.Printf("Project #%d updated.\n", pd.Project.Number)
+	return nil
+}
+
+// cmdProjectClose bulk-closes: all open steps done, status completed,
+// reason recorded. One call instead of N lifecycle transitions.
+func cmdProjectClose(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: pm project close <id> [reason]")
+	}
+	reason := "bulk close"
+	if len(args) > 1 {
+		reason = strings.Join(args[1:], " ")
+	}
+	st, err := openStore()
+	if err != nil {
+		return err
+	}
+	if err := st.CloseProject(args[0], reason); err != nil {
+		return err
+	}
+	fmt.Printf("Project %s closed (%s).\n", args[0], reason)
 	return nil
 }

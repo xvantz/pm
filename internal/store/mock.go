@@ -3,6 +3,7 @@ package store
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/xvantz/pm/internal/domain"
 	"github.com/xvantz/pm/internal/types"
@@ -193,6 +194,35 @@ func (s *MockStore) SaveDecision(d types.Decision) error {
 
 func (s *MockStore) DeleteProject(id string) error {
 	delete(s.projects, id)
+	return nil
+}
+
+func (s *MockStore) CloseProject(ref, reason string) error {
+	pd, err := s.ResolveProject(ref)
+	if err != nil {
+		return err
+	}
+	if pd.Project.Status == types.StatusCompleted {
+		return fmt.Errorf("project #%d already completed", pd.Project.Number)
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "bulk close"
+	}
+	now := types.NowISO()
+	for i := range pd.Steps {
+		if pd.Steps[i].Status == types.StepDone {
+			continue
+		}
+		pd.Steps[i].Status = types.StepDone
+		pd.Steps[i].UpdatedAt = now
+	}
+	pd.Project.Status = types.StatusCompleted
+	pd.Project.CompletedAt = now
+	pd.Project.UpdatedAt = now
+	pd.Decisions = append(pd.Decisions, types.Decision{
+		ID: "closed", Title: "Closed: " + reason, Reason: reason,
+		Date: now, ProjectID: pd.Project.ID,
+	})
 	return nil
 }
 

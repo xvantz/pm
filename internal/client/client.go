@@ -154,6 +154,17 @@ func (c *Client) DeleteProject(ref string) (string, error) {
 	return out["trashed"], nil
 }
 
+// CloseProject bulk-closes: open steps done, status completed, reason kept.
+func (c *Client) CloseProject(ref, reason string) (*types.Project, error) {
+	var out types.Project
+	err := c.do("POST", "/api/projects/"+url.PathEscape(ref)+"/close",
+		map[string]string{"reason": reason}, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // --- steps ---
 
 func (c *Client) ListSteps(ref string) ([]types.Step, error) {

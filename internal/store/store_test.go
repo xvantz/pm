@@ -654,3 +654,42 @@ func TestFileStore_EmptyStepsDecisions(t *testing.T) {
 		t.Logf("GetDecisions returned %d items (expected nil for empty project)", len(decisions))
 	}
 }
+
+func TestMockStore_CloseProject(t *testing.T) {
+	s := NewMockStore()
+	pd, err := s.ResolveProject("1")
+	if err != nil {
+		t.Fatalf("ResolveProject(1) error = %v", err)
+	}
+	open := 0
+	for _, st := range pd.Steps {
+		if st.Status != types.StepDone {
+			open++
+		}
+	}
+	if err := s.CloseProject(pd.Project.ID, "test close"); err != nil {
+		t.Fatalf("CloseProject error = %v", err)
+	}
+	after, _ := s.GetProject(pd.Project.ID)
+	if after.Project.Status != types.StatusCompleted {
+		t.Errorf("status = %q, want completed", after.Project.Status)
+	}
+	for _, st := range after.Steps {
+		if st.Status != types.StepDone {
+			t.Errorf("step %q = %q, want done", st.ID, st.Status)
+		}
+	}
+	found := false
+	for _, d := range after.Decisions {
+		if d.ID == "closed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("closed decision not recorded")
+	}
+	t.Logf("closed %d open steps", open)
+	if err := s.CloseProject(pd.Project.ID, "again"); err == nil {
+		t.Error("double close must fail")
+	}
+}

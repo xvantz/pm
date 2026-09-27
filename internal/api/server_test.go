@@ -260,3 +260,29 @@ func TestProjectCreateID(t *testing.T) {
 		t.Errorf("bad id: code = %d, want 400", w.Code)
 	}
 }
+
+func TestProjectClose(t *testing.T) {
+	srv := newTestServer(t)
+	p := createProject(t, srv, "Closer")
+	base := "/api/projects"
+	w := doReq(t, srv, "POST", base+"/1/steps", map[string]string{"title": "Work"}, testToken)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create step: code = %d", w.Code)
+	}
+	w = doReq(t, srv, "POST", base+"/1/close", map[string]string{"reason": "test done"}, testToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("close: code = %d, body = %s", w.Code, w.Body.String())
+	}
+	var closed types.Project
+	if err := json.NewDecoder(w.Body).Decode(&closed); err != nil {
+		t.Fatal(err)
+	}
+	if closed.Status != types.StatusCompleted {
+		t.Errorf("status = %q, want completed", closed.Status)
+	}
+	_ = p
+	w = doReq(t, srv, "POST", base+"/1/close", map[string]string{"reason": "again"}, testToken)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("double close: code = %d, want 422", w.Code)
+	}
+}

@@ -267,6 +267,46 @@ func (s *FileStore) SaveDecision(d types.Decision) error {
 	return writeYAMLAtomic(filepath.Join(dir, d.ID+".yaml"), d)
 }
 
+// CloseProject force-completes open steps, marks the project completed
+// and records the reason. One call instead of N lifecycle transitions.
+// Each op locks individually (no nested locks); the daemon serializes
+// concurrent closes with its own mutex.
+func (s *FileStore) CloseProject(ref, reason string) error {
+	pd, err := s.ResolveProject(ref)
+	if err != nil {
+		return err
+	}
+	if pd.Project.Status == types.StatusCompleted {
+		return fmt.Errorf("project #%d already completed", pd.Project.Number)
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "bulk close"
+	}
+	now := types.NowISO()
+	closed := 0
+	for _, st := range pd.Steps {
+		if st.Status == types.StepDone {
+			continue
+		}
+		st.Status = types.StepDone
+		st.UpdatedAt = now
+		if err := s.SaveStep(st); err != nil {
+			return fmt.Errorf("close step %q: %w", st.ID, err)
+		}
+		closed++
+	}
+	pd.Project.Status = types.StatusCompleted
+	pd.Project.CompletedAt = now
+	pd.Project.UpdatedAt = now
+	if err := s.SaveProject(pd.Project); err != nil {
+		return fmt.Errorf("complete project: %w", err)
+	}
+	return s.SaveDecision(types.Decision{
+		ID: "closed", Title: "Closed: " + reason, Reason: reason,
+		Date: now, ProjectID: pd.Project.ID,
+	})
+}
+
 func (s *FileStore) DeleteProject(id string) error {
 	unlock, err := s.lockProject(id)
 	if err != nil {

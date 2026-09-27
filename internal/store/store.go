@@ -27,6 +27,11 @@ type Store interface {
 	SaveBlocker(b types.Blocker) error
 	// SaveDecision creates or updates a decision.
 	SaveDecision(d types.Decision) error
+	// CloseProject force-completes all open steps, marks the project
+	// completed and records a "Closed: <reason>" decision. Bulk close
+	// in one call: the strict step lifecycle is for active work,
+	// archival must not cost N calls.
+	CloseProject(projectID, reason string) error
 	// DeleteProject moves a project to .trash.
 	DeleteProject(id string) error
 	// TrashList returns the names of items in the trash.
