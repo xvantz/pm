@@ -1,18 +1,30 @@
 package cli
 
 import (
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/xvantz/pm/internal/api"
+	"github.com/xvantz/pm/internal/store"
 	"github.com/xvantz/pm/internal/types"
 )
 
-// TestMain scrubs remote-mode env so file-store tests stay hermetic:
-// a leaked PM_API would redirect openStore() at a (possibly dead) daemon.
+// TestMain spins a real daemon (httptest) as the only backend: remote-only,
+// no file fallback. File-store tests would silently test the wrong thing.
 func TestMain(m *testing.M) {
-	os.Unsetenv("PM_API")
-	os.Unsetenv("PM_TOKEN")
+	dir, err := os.MkdirTemp("", "pm-cli-test-*")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(dir)
+	srv := api.New(store.NewFileStore(dir), "test-token")
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+	os.Setenv("PM_API", ts.URL)
+	os.Setenv("PM_TOKEN", "test-token")
 	os.Exit(m.Run())
 }
 
@@ -195,10 +207,15 @@ func containsStr(s, substr string) bool {
 }
 
 func TestDoctor_EmptyStore(t *testing.T) {
+	// Doctor is host-local by design: it reads YAML files directly.
+	// Give it a real (empty) store dir with a projects/ subdir.
 	dir := t.TempDir()
 	t.Setenv("PM_DIR", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "projects"), 0755); err != nil {
+		t.Fatal(err)
+	}
 
-	// Create a minimal project
+	// Create a minimal project through the daemon (remote openStore).
 	st, err := openStore()
 	if err != nil {
 		t.Fatalf("openStore() error = %v", err)
@@ -218,9 +235,7 @@ func TestDoctor_EmptyStore(t *testing.T) {
 }
 
 func TestTrash_ListEmpty(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("PM_DIR", dir)
-
+	// Remote: trash lives in the daemon, PM_DIR is irrelevant.
 	err := cmdTrashList(nil)
 	if err != nil {
 		t.Fatalf("cmdTrashList error = %v", err)
@@ -228,9 +243,6 @@ func TestTrash_ListEmpty(t *testing.T) {
 }
 
 func TestTrash_RestoreClean(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("PM_DIR", dir)
-
 	st, err := openStore()
 	if err != nil {
 		t.Fatalf("openStore() error = %v", err)

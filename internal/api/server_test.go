@@ -228,3 +228,35 @@ func TestBriefing(t *testing.T) {
 		t.Fatalf("briefing: code = %d, body = %s", w.Code, w.Body.String())
 	}
 }
+
+func TestProjectCreateID(t *testing.T) {
+	srv := newTestServer(t)
+
+	// Client-provided UUID is honored.
+	w := doReq(t, srv, "POST", "/api/projects",
+		map[string]string{"title": "Pinned", "id": "0196f1a2-b3c4-7d5e-8f6a-9b0c1d2e3f4a"}, testToken)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create with id: code = %d, body = %s", w.Code, w.Body.String())
+	}
+	var p types.Project
+	if err := json.NewDecoder(w.Body).Decode(&p); err != nil {
+		t.Fatal(err)
+	}
+	if p.ID != "0196f1a2-b3c4-7d5e-8f6a-9b0c1d2e3f4a" {
+		t.Errorf("id = %q, want client-provided", p.ID)
+	}
+
+	// Same id twice -> 409.
+	w = doReq(t, srv, "POST", "/api/projects",
+		map[string]string{"title": "Dup", "id": "0196f1a2-b3c4-7d5e-8f6a-9b0c1d2e3f4a"}, testToken)
+	if w.Code != http.StatusConflict {
+		t.Errorf("duplicate id: code = %d, want 409", w.Code)
+	}
+
+	// Garbage id -> 400.
+	w = doReq(t, srv, "POST", "/api/projects",
+		map[string]string{"title": "Bad", "id": "not-a-uuid"}, testToken)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("bad id: code = %d, want 400", w.Code)
+	}
+}

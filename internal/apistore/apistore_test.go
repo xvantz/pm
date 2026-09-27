@@ -24,8 +24,8 @@ func newRemote(t *testing.T) store.Store {
 func TestRemoteProjectLifecycle(t *testing.T) {
 	st := newRemote(t)
 
-	if _, ok := NewFromEnvVars("", "tok"); ok {
-		t.Error("empty addr must report false")
+	if _, ok := NewFromEnvVars("", "tok"); !ok {
+		t.Error("empty addr must fall back to DefaultAddr")
 	}
 
 	n, err := st.NextNumber()

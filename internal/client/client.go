@@ -103,14 +103,12 @@ func (c *Client) Version() string { return c.ver }
 
 // --- projects ---
 
-// ListProjects returns all projects.
 func (c *Client) ListProjects() ([]types.Project, error) {
 	var out []types.Project
 	err := c.do("GET", "/api/projects", nil, &out)
 	return out, err
 }
 
-// GetProject resolves by number or UUID.
 func (c *Client) GetProject(ref string) (*types.ProjectData, error) {
 	var out types.ProjectData
 	err := c.do("GET", "/api/projects/"+url.PathEscape(ref), nil, &out)
@@ -121,10 +119,12 @@ func (c *Client) GetProject(ref string) (*types.ProjectData, error) {
 }
 
 // CreateProject creates a project (status idea, server-assigned number).
-func (c *Client) CreateProject(title, goal string, tags []string) (*types.Project, error) {
+// Empty id means the server generates one; pass a UUIDv7 to keep client
+// confirmation texts pointing at the real project.
+func (c *Client) CreateProject(title, goal string, tags []string, id string) (*types.Project, error) {
 	var out types.Project
 	err := c.do("POST", "/api/projects", map[string]any{
-		"title": title, "goal": goal, "tags": tags,
+		"title": title, "goal": goal, "tags": tags, "id": id,
 	}, &out)
 	if err != nil {
 		return nil, err
@@ -156,7 +156,6 @@ func (c *Client) DeleteProject(ref string) (string, error) {
 
 // --- steps ---
 
-// ListSteps returns all steps of a project.
 func (c *Client) ListSteps(ref string) ([]types.Step, error) {
 	var out []types.Step
 	err := c.do("GET", "/api/projects/"+url.PathEscape(ref)+"/steps", nil, &out)
@@ -185,7 +184,6 @@ func (c *Client) StepAction(ref, step, action string) (*types.Step, error) {
 	return &out, nil
 }
 
-// DeleteStep removes a step.
 func (c *Client) DeleteStep(ref, step string) error {
 	return c.do("DELETE", "/api/projects/"+url.PathEscape(ref)+
 		"/steps/"+url.PathEscape(step), nil, nil)
@@ -193,7 +191,6 @@ func (c *Client) DeleteStep(ref, step string) error {
 
 // --- blockers ---
 
-// ListBlockers returns all blockers of a project.
 func (c *Client) ListBlockers(ref string) ([]types.Blocker, error) {
 	var out []types.Blocker
 	err := c.do("GET", "/api/projects/"+url.PathEscape(ref)+"/blockers", nil, &out)
@@ -224,7 +221,6 @@ func (c *Client) ResolveBlocker(ref, step, blk string) (*types.Blocker, error) {
 	return &out, nil
 }
 
-// DeleteBlocker removes a blocker.
 func (c *Client) DeleteBlocker(ref, step, blk string) error {
 	return c.do("DELETE", "/api/projects/"+url.PathEscape(ref)+
 		"/steps/"+url.PathEscape(step)+"/blockers/"+url.PathEscape(blk), nil, nil)
@@ -232,14 +228,12 @@ func (c *Client) DeleteBlocker(ref, step, blk string) error {
 
 // --- decisions ---
 
-// ListDecisions returns all decisions of a project.
 func (c *Client) ListDecisions(ref string) ([]types.Decision, error) {
 	var out []types.Decision
 	err := c.do("GET", "/api/projects/"+url.PathEscape(ref)+"/decisions", nil, &out)
 	return out, err
 }
 
-// AddDecision records a decision.
 func (c *Client) AddDecision(ref, title, reason string) (*types.Decision, error) {
 	var out types.Decision
 	err := c.do("POST", "/api/projects/"+url.PathEscape(ref)+"/decisions",
@@ -250,7 +244,6 @@ func (c *Client) AddDecision(ref, title, reason string) (*types.Decision, error)
 	return &out, nil
 }
 
-// DeleteDecision removes a decision.
 func (c *Client) DeleteDecision(ref, dec string) error {
 	return c.do("DELETE", "/api/projects/"+url.PathEscape(ref)+
 		"/decisions/"+url.PathEscape(dec), nil, nil)
@@ -258,26 +251,22 @@ func (c *Client) DeleteDecision(ref, dec string) error {
 
 // --- trash ---
 
-// TrashList returns trashed project names.
 func (c *Client) TrashList() ([]string, error) {
 	var out []string
 	err := c.do("GET", "/api/trash", nil, &out)
 	return out, err
 }
 
-// TrashRestore restores a trashed project by name.
 func (c *Client) TrashRestore(name string) error {
 	return c.do("POST", "/api/trash/"+url.PathEscape(name)+"/restore", nil, nil)
 }
 
-// TrashClean permanently removes all trashed items.
 func (c *Client) TrashClean() error {
 	return c.do("DELETE", "/api/trash", nil, nil)
 }
 
 // --- briefing ---
 
-// Briefing generates a briefing (date and project filter optional).
 func (c *Client) Briefing(date, project string) (*briefing.Briefing, error) {
 	q := url.Values{}
 	if date != "" {

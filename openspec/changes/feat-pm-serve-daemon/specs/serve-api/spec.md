@@ -27,11 +27,27 @@ Missing or wrong token yields `401` with JSON error body.
 - WHEN `GET /healthz`
 - THEN `200 {"status":"ok","version":"..."}` without any header
 
+## Requirement: Remote-only clients
+
+CLI commands and pm-mcp SHALL NOT touch YAML files (except `pm serve`,
+`pm doctor`, and `pm init`, which are host-local by nature).
+`openStore()` always returns the HTTP adapter; the address defaults to
+the serve convention (`PM_API` overrides), token from `PM_TOKEN`.
+`--dir` flags for data paths are removed; `pm serve --dir` stays
+(the daemon owns the files).
+
+### Scenario: no daemon
+
+- WHEN `pm project list` runs with nothing on 127.0.0.1:8472
+- THEN a connection error names the address (no silent file fallback)
+
 ## Requirement: Endpoints mirror the store
 
 Reads return the same JSON shapes as MCP read tools:
 
 - `GET /api/projects` -> `[]Project`
+- `POST /api/projects` `{title, goal?, tags?, id?}` -> `Project`
+  (`id` pins a client UUID: 400 on garbage, 409 on collision; numbers stay server-assigned)
 - `GET /api/projects/{ref}` -> `ProjectData` (ref = number or UUID)
 - `PATCH /api/projects/{ref}` `{goal?, status?, tags?}` -> `Project`
 - `DELETE /api/projects/{ref}` -> trash, `200 {"trashed": name}`

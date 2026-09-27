@@ -81,7 +81,7 @@ func (s *Store) SaveProject(p types.Project) error {
 	// New vs existing by lookup: callers (CLI) pre-assign Number before save,
 	// so Number==0 is not a reliable new-project signal.
 	if _, err := s.c.GetProject(p.ID); err != nil {
-		_, cerr := s.c.CreateProject(p.Title, p.Goal, p.Tags)
+		_, cerr := s.c.CreateProject(p.Title, p.Goal, p.Tags, p.ID)
 		return cerr
 	}
 	_, err := s.c.PatchProject(p.ID, &p.Goal, &p.Status, p.Tags)

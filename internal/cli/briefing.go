@@ -3,7 +3,6 @@ package cli
 import (
 	"flag"
 	"fmt"
-	"os"
 
 	"github.com/xvantz/pm/internal/apistore"
 	"github.com/xvantz/pm/internal/briefing"
@@ -15,13 +14,12 @@ func cmdBriefing(args []string) error {
 	fs := flag.NewFlagSet("briefing", flag.ExitOnError)
 	mock := fs.Bool("mock", false, "use mock data instead of file store")
 	date := fs.String("date", "", "ISO date for briefing (default: today)")
-	dir := fs.String("dir", "", "path to projects/ (default: ./pm/projects)")
 	asJSON := fs.Bool("json", false, "output JSON instead of markdown")
 	projectRef := fs.String("project", "", "filter to a single project (number or UUID)")
 	_ = fs.Parse(args)
 
-	// Remote mode wins unless --mock/--dir force local data.
-	if !*mock && *dir == "" {
+	// Remote-only: the daemon computes the briefing, unless --mock forces fixtures.
+	if !*mock {
 		if cl, ok := apistore.ClientFromEnv(); ok {
 			return cmdBriefingRemote(cl, *date, *projectRef, *asJSON)
 		}
@@ -31,14 +29,11 @@ func cmdBriefing(args []string) error {
 	if *mock {
 		st = store.NewMockStore()
 	} else {
-		root := *dir
-		if root == "" {
-			root = defaultProjectsDir()
+		var err error
+		st, err = openStore()
+		if err != nil {
+			return err
 		}
-		if info, err := os.Stat(root); err != nil || !info.IsDir() {
-			return fmt.Errorf("projects dir not found: %s\n  Run `pm init` first, or use --mock for testing.", root)
-		}
-		st = store.NewFileStore(root)
 	}
 
 	cfg := briefing.Config{Store: st}

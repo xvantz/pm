@@ -135,6 +135,7 @@ type createProjectReq struct {
 	Title string   `json:"title"`
 	Goal  string   `json:"goal,omitempty"`
 	Tags  []string `json:"tags,omitempty"`
+	ID    string   `json:"id,omitempty"`
 }
 
 func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
@@ -149,9 +150,22 @@ func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	uid, err := uuid.NewV7()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("generate id: %v", err))
+	// Honor a client-provided UUID (CLI/MCP pre-assign one and print it in
+	// confirmation texts). Fall back to server-generated when absent.
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
+		uid, err := uuid.NewV7()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, fmt.Sprintf("generate id: %v", err))
+			return
+		}
+		id = uid.String()
+	} else if _, err := uuid.Parse(id); err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("bad id: %q", req.ID))
+		return
+	}
+	if _, err := s.store.GetProject(id); err == nil {
+		writeErr(w, http.StatusConflict, fmt.Sprintf("project %q already exists", id))
 		return
 	}
 	number, err := s.store.NextNumber()
@@ -161,7 +175,7 @@ func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	now := types.NowISO()
 	p := types.Project{
-		ID: idString(uid), Number: number, Title: req.Title,
+		ID: id, Number: number, Title: req.Title,
 		Goal: req.Goal, Tags: req.Tags,
 		Status: types.StatusIdea, CreatedAt: now, UpdatedAt: now,
 	}
@@ -176,8 +190,6 @@ func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, p)
 }
-
-func idString(uid uuid.UUID) string { return uid.String() }
 
 func (s *Server) handleProjectGet(w http.ResponseWriter, r *http.Request) {
 	pd := s.resolve(w, r.PathValue("ref"))
