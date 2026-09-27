@@ -11,15 +11,17 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/xvantz/pm/internal/apistore"
 	"github.com/xvantz/pm/internal/api"
 	"github.com/xvantz/pm/internal/store"
 )
 
 // pm serve [--addr 127.0.0.1:8472] [--dir PATH] [--token ...]
+// The daemon is the only process touching YAML: single writer.
 // Token falls back to PM_TOKEN env. Missing token is a startup error.
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	addr := fs.String("addr", "127.0.0.1:8472", "listen address (keep localhost unless behind Tailscale)")
+	addr := fs.String("addr", apistore.DefaultServeAddr, "listen address (keep localhost unless behind Tailscale)")
 	dir := fs.String("dir", "", "PM root directory (overrides PM_DIR env)")
 	token := fs.String("token", "", "Bearer token (overrides PM_TOKEN env)")
 	if err := fs.Parse(args); err != nil {

@@ -55,6 +55,9 @@ func New(st store.Store, token string) *Server {
 	s.mux.HandleFunc("POST /api/projects/{ref}/decisions", s.auth(s.handleDecisionCreate))
 	s.mux.HandleFunc("DELETE /api/projects/{ref}/decisions/{dec}", s.auth(s.handleDecisionDelete))
 	s.mux.HandleFunc("GET /api/briefing", s.auth(s.handleBriefing))
+	s.mux.HandleFunc("GET /api/trash", s.auth(s.handleTrashList))
+	s.mux.HandleFunc("POST /api/trash/{name}/restore", s.auth(s.handleTrashRestore))
+	s.mux.HandleFunc("DELETE /api/trash", s.auth(s.handleTrashClean))
 	return s
 }
 
@@ -132,6 +135,7 @@ type createProjectReq struct {
 	Title string   `json:"title"`
 	Goal  string   `json:"goal,omitempty"`
 	Tags  []string `json:"tags,omitempty"`
+	ID    string   `json:"id,omitempty"`
 }
 
 func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
@@ -146,9 +150,22 @@ func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	uid, err := uuid.NewV7()
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("generate id: %v", err))
+	// Honor a client-provided UUID (CLI/MCP pre-assign one and print it in
+	// confirmation texts). Fall back to server-generated when absent.
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
+		uid, err := uuid.NewV7()
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, fmt.Sprintf("generate id: %v", err))
+			return
+		}
+		id = uid.String()
+	} else if _, err := uuid.Parse(id); err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("bad id: %q", req.ID))
+		return
+	}
+	if _, err := s.store.GetProject(id); err == nil {
+		writeErr(w, http.StatusConflict, fmt.Sprintf("project %q already exists", id))
 		return
 	}
 	number, err := s.store.NextNumber()
@@ -158,7 +175,7 @@ func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	now := types.NowISO()
 	p := types.Project{
-		ID: idString(uid), Number: number, Title: req.Title,
+		ID: id, Number: number, Title: req.Title,
 		Goal: req.Goal, Tags: req.Tags,
 		Status: types.StatusIdea, CreatedAt: now, UpdatedAt: now,
 	}
@@ -173,8 +190,6 @@ func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, p)
 }
-
-func idString(uid uuid.UUID) string { return uid.String() }
 
 func (s *Server) handleProjectGet(w http.ResponseWriter, r *http.Request) {
 	pd := s.resolve(w, r.PathValue("ref"))
@@ -602,4 +617,41 @@ func (s *Server) handleBriefing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, b)
+}
+
+// --- trash ---
+
+func (s *Server) handleTrashList(w http.ResponseWriter, _ *http.Request) {
+	names, err := s.store.TrashList()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if names == nil {
+		names = []string{}
+	}
+	writeJSON(w, http.StatusOK, names)
+}
+
+func (s *Server) handleTrashRestore(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	name := r.PathValue("name")
+	if err := s.store.TrashRestore(name); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"restored": name})
+}
+
+func (s *Server) handleTrashClean(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.store.TrashClean(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"cleaned": "trash"})
 }

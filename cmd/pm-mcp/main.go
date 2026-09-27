@@ -11,9 +11,9 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
+	"github.com/xvantz/pm/internal/apistore"
 	"github.com/xvantz/pm/internal/mcp"
 	"github.com/xvantz/pm/internal/store"
 )
@@ -22,7 +22,6 @@ import (
 var Version = "dev"
 
 func main() {
-	dirFlag := flag.String("dir", "", "PM root directory (overrides PM_DIR env)")
 	versionFlag := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
 
@@ -31,15 +30,16 @@ func main() {
 		return
 	}
 
-	root := projectsDir(*dirFlag)
-
-	info, err := os.Stat(root)
-	if err != nil || !info.IsDir() {
-		fmt.Fprintf(os.Stderr, "projects dir not found: %s\n  Run `pm init` first.\n", root)
-		os.Exit(1)
+	// Remote-only: no files here, everything goes to the daemon.
+	// Address defaults to the serve convention (PM_API overrides), token from PM_TOKEN.
+	var st store.Store
+	remote, _ := apistore.NewFromEnv()
+	st = remote
+	if api := os.Getenv("PM_API"); api != "" {
+		slog.Info("PM MCP server started in remote mode", "api", api)
+	} else {
+		slog.Info("PM MCP server started in remote mode", "api", apistore.DefaultAddr)
 	}
-
-	st := store.NewFileStore(root)
 
 	server := mcp.NewServer("pm-mcp", Version)
 	mcp.RegisterPMTools(server, st)
@@ -47,23 +47,8 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	slog.Info("PM MCP server started", "dir", root)
 	if err := server.Run(ctx); err != nil {
 		slog.Error("server error", "error", err)
 		os.Exit(1)
 	}
-}
-
-func projectsDir(dirFlag string) string {
-	if dirFlag != "" {
-		return filepath.Join(dirFlag, "projects")
-	}
-	if dir := os.Getenv("PM_DIR"); dir != "" {
-		return filepath.Join(dir, "projects")
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "./pm/projects"
-	}
-	return filepath.Join(cwd, "pm", "projects")
 }

@@ -1,19 +1,18 @@
 package cli
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/xvantz/pm/internal/apistore"
 	"github.com/xvantz/pm/internal/store"
 )
 
+// openStore always talks to the daemon: remote-only, no file fallback.
+// Address defaults to the serve convention (PM_API overrides), token from PM_TOKEN.
 func openStore() (store.Store, error) {
-	root := defaultProjectsDir()
-	if info, err := os.Stat(root); err != nil || !info.IsDir() {
-		return nil, fmt.Errorf("projects dir not found: %s\n  Run `pm init` first.", root)
-	}
-	return store.NewFileStore(root), nil
+	remote, _ := apistore.NewFromEnv()
+	return remote, nil
 }
 
 func defaultProjectsDir() string {
