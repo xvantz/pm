@@ -117,12 +117,12 @@
               description = "PM Project Memory daemon (single writer API)";
               wantedBy = [ "multi-user.target" ];
               after = [ "network.target" ];
-              restart = "always";
-              restartSec = "5";
               serviceConfig = {
                 Type = "simple";
                 DynamicUser = true;
                 StateDirectory = "pm-serve";
+                Restart = "always";
+                RestartSec = "5";
                 EnvironmentFile = cfg.environmentFile;
               };
               script = ''
