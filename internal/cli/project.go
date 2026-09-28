@@ -79,6 +79,14 @@ func cmdProjectCreate(args []string) error {
 		return fmt.Errorf("save project: %w", err)
 	}
 
+	// The server assigns the real number (advisory NextNumber above may be
+	// stale under concurrency): re-read and echo that, or hints point nowhere.
+	saved, err := st.ResolveProject(id)
+	if err != nil {
+		return fmt.Errorf("resolve created project: %w", err)
+	}
+	number = saved.Project.Number
+
 	fmt.Printf("Created project #%d: %q\n", number, title)
 	fmt.Println()
 	fmt.Printf("  pm project goal %d \"...\"    # add a goal\n", number)
