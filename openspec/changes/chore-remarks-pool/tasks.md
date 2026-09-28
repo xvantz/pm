@@ -4,7 +4,8 @@
 
 - [x] P1 mcp-server catalogue: "exactly 14 tools" при фактических 16 (close_project, delete_project)
   **Done:** PR #19, каталог переписан как derived, тест уникальности имен
-- [ ] P2 hermes-integration Launch contract: описывает containerDataDir/bind-mount мир, код уже remote-only
+- [x] P2 hermes-integration Launch contract: описывает containerDataDir/bind-mount мир, код уже remote-only
+  **Done:** PR #20, MODIFIED под remote-only, док 13 → 16
 - [ ] P3 cli-lifecycle Trash: "CLI-only, no MCP tool" при живом delete_project в MCP
 
 ## Design critique (нужно решение keep/change)
