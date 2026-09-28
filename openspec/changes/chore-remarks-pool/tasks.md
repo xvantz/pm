@@ -2,7 +2,8 @@
 
 ## Confirmed drift (спека врет, чинить ченжем)
 
-- [ ] P1 mcp-server catalogue: "exactly 14 tools" при фактических 16 (close_project, delete_project)
+- [x] P1 mcp-server catalogue: "exactly 14 tools" при фактических 16 (close_project, delete_project)
+  **Done:** PR #19, каталог переписан как derived, тест уникальности имен
 - [ ] P2 hermes-integration Launch contract: описывает containerDataDir/bind-mount мир, код уже remote-only
 - [ ] P3 cli-lifecycle Trash: "CLI-only, no MCP tool" при живом delete_project в MCP
 
