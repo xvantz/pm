@@ -7,6 +7,7 @@
 - [x] P2 hermes-integration Launch contract: описывает containerDataDir/bind-mount мир, код уже remote-only
   **Done:** PR #20, MODIFIED под remote-only, док 13 → 16
 - [ ] P3 cli-lifecycle Trash: "CLI-only, no MCP tool" при живом delete_project в MCP
+  **Deferred:** соседом в feat-mcp-trash-restore (MODIFIED Trash в матрицу при его реализации), закрывается его архивом
 
 ## Design critique (нужно решение keep/change)
 
