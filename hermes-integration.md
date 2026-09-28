@@ -86,9 +86,10 @@ curl localhost:8472/healthz
 curl -H "Authorization: Bearer $PM_TOKEN" localhost:8472/api/projects
 ```
 
-Hermes gains the tools with the `mcp_pm_` prefix (13 total):
+Hermes gains the tools with the `mcp_pm_` prefix (16 total):
 - `list_projects`, `get_project`, `add_project`
 - `add_step`, `start_step`, `review_step`, `done_step`
 - `add_blocker`, `resolve_blocker`
 - `add_decision`, `get_briefing`
 - `list_steps`, `list_blockers`, `list_decisions`
+- `close_project`, `delete_project`

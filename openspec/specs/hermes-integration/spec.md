@@ -8,17 +8,22 @@ Contract between the `pm` Nix package (`flake.nix`, `nixosModules.default` with 
 
 ### Requirement: Launch contract
 
-Hermes SHALL launch `pm-mcp` as `${config.services.pm.package}/bin/pm-mcp --dir ${config.services.pm.containerDataDir}` with no hardcoded paths in `hermes.nix`. `containerDataDir` (default `/data/pm`) is the bind-mount target of host `dataDir` inside the container; `PM_DIR` env remains a dev-only override. The flake MUST build from a clean checkout (`vendorHash` real, no placeholders).
+Hermes SHALL launch `pm-mcp` as `${config.services.pm.package}/bin/pm-mcp` with no hardcoded paths and no data volume mounts in `hermes.nix`. The container needs only address (`env.PM_API`, default serve convention `http://127.0.0.1:8472`) + token (`env.PM_TOKEN`, from the same sops `pm_env` secret as the daemon). `dataDir`/`PM_DIR` is the host path and only the daemon reads it; `--dir` exists solely on `pm serve`. The flake MUST build from a clean checkout (`vendorHash` real, no placeholders).
 
 #### Scenario: Server starts with data present
 
 - **WHEN** Hermes spawns the `pm` MCP server
-- **THEN** the server initializes against the configured container data dir and answers `tools/list`
+- **THEN** it answers `tools/list` against daemon-held data, with no volume mounts and no `--dir` in its launch command, authenticated by `PM_TOKEN`
 
 #### Scenario: Clean build
 
 - **WHEN** running `nix build .#pm` on a fresh clone
 - **THEN** the build succeeds and both binaries respond to `--version` with the ldflags-baked version
+
+#### Scenario: No mounts in launch command
+
+- **WHEN** auditing `hermes.nix` for the `pm` server block
+- **THEN** no data volume mount and no `--dir` flag is present; only `PM_API` and `PM_TOKEN` env
 
 ### Requirement: Stderr discipline
 
