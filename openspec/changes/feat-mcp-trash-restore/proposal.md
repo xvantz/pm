@@ -10,6 +10,6 @@
 
 # Impact
 
-- Affected specs: `mcp-server` (ADDED: 2 тула, 14 -> 16), `project-store` (ADDED: бэкапы).
+- Affected specs: `mcp-server` (ADDED: 2 тула; каталог выводимый после P1, правок счета не надо), `cli-lifecycle` (MODIFIED: Trash требование в матрицу delete/restore по поверхностям, сосед из пула P3), `project-store` (ADDED: бэкапы).
 - Affected code: `internal/mcp/tools.go`, `internal/store/filestore.go`, `internal/cli/trash.go`.
 - Зависит от `fix-mcp-list-projects-schema` (новые тулы сразу с корректными схемами).
