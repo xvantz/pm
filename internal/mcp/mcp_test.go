@@ -682,6 +682,13 @@ func TestToolsList_AllSchemasAreObjects(t *testing.T) {
 	if len(result.Tools) == 0 {
 		t.Fatal("tools/list returned no tools")
 	}
+	seen := make(map[string]bool, len(result.Tools))
+	for _, tool := range result.Tools {
+		if seen[tool.Name] {
+			t.Errorf("duplicate tool name %q in tools/list", tool.Name)
+		}
+		seen[tool.Name] = true
+	}
 	for _, tool := range result.Tools {
 		var schema struct {
 			Type string `json:"type"`
