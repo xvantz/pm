@@ -11,7 +11,8 @@
 
 ## Design critique (нужно решение keep/change)
 
-- [ ] P4 CloseProject doneит шаги с висящими блокерами (спека фиксирует bypass как intended; вопрос: резолвить блокеры при close?)
+- [x] P4 CloseProject doneит шаги с висящими блокерами (спека фиксирует bypass как intended; вопрос: резолвить блокеры при close?)
+  **Done:** вердикт keep. Инвариант проверен в коде: briefing собирает блокеры только под StatusActive (briefing.go switch), completed уходят в completedSec без подсчетов; list_blockers только per-project. Закрытие = выполнено, блокеры история. Guard: правило соседей в скилле (правка briefing обязана грепнуть инвариант)
 - [ ] P5 Create печатает advisory номер вместо серверного (врет при гонке)
 
 ## Coverage gaps (спеки молчат)
