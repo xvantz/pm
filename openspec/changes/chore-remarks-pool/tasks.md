@@ -18,9 +18,15 @@
 
 ## Coverage gaps (спеки молчат)
 
-- [ ] P6 Гранулярность времени: NowISO только дата, порядок внутри дня теряется
-- [ ] P7 Slug правила не специфицированы (набор символов, длина, скрытые файлы)
-- [ ] P8 Модуль не раздает PM_API (смена listenAddr роняет клиентов)
-- [ ] P9 MCP: нет пагинации get_project, string ID не поддерживаются
-- [ ] P10 Doctor локальный PM_DIR vs путь демона (расщепление не покрыто)
-- [ ] P11 Briefing вообще без спеки (capability файл отсутствует)
+- [ ] P6 Гранулярность времени
+  **Moved:** ченж fix-event-time: NowISO только дата, порядок внутри дня теряется
+- [ ] P7 Slug правила
+  **Moved:** ченж fix-slug-rules не специфицированы (набор символов, длина, скрытые файлы)
+- [ ] P8 Модуль не раздает PM_API
+  **Moved:** ченж fix-env-doctor (смена listenAddr роняет клиентов)
+- [ ] P9 MCP: нет пагинации
+  **Moved:** ченж feat-mcp-paging-briefing get_project, string ID не поддерживаются
+- [ ] P10 Doctor локальный
+  **Moved:** ченж fix-env-doctor PM_DIR vs путь демона (расщепление не покрыто)
+- [ ] P11 Briefing вообще без спеки
+  **Moved:** ченж feat-mcp-paging-briefing (capability файл отсутствует)
