@@ -147,7 +147,9 @@ func TestGenerate_TodayFallback(t *testing.T) {
 		t.Fatalf("Generate() error = %v", err)
 	}
 
-	expected := time.Now().UTC().Format("2006-01-02")
+	// "Today" is the reader's local day, not the UTC one: the daemon's zone
+	// defines the day for every client.
+	expected := time.Now().Format("2006-01-02")
 	if b.Date != expected {
 		t.Errorf("Date = %q, want today %q", b.Date, expected)
 	}

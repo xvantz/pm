@@ -108,7 +108,7 @@ func (s *Server) resolve(w http.ResponseWriter, ref string) *types.ProjectData {
 }
 
 func touchProject(s *Server, pd *types.ProjectData) {
-	pd.Project.UpdatedAt = types.NowISO()
+	pd.Project.UpdatedAt = types.NowTimestamp()
 	if err := s.store.SaveProject(pd.Project); err != nil {
 		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
 	}
@@ -174,7 +174,7 @@ func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("next number: %v", err))
 		return
 	}
-	now := types.NowISO()
+	now := types.NowTimestamp()
 	p := types.Project{
 		ID: id, Number: number, Title: req.Title,
 		Goal: req.Goal, Tags: req.Tags,
@@ -226,7 +226,7 @@ func (s *Server) handleProjectPatch(w http.ResponseWriter, r *http.Request) {
 		case types.StatusActive, types.StatusCompleted, types.StatusPaused, types.StatusIdea:
 			pd.Project.Status = *req.Status
 			if *req.Status == types.StatusCompleted {
-				pd.Project.CompletedAt = types.NowISO()
+				pd.Project.CompletedAt = types.NowTimestamp()
 			}
 		default:
 			writeErr(w, http.StatusBadRequest, fmt.Sprintf("bad status: %q", *req.Status))
@@ -236,7 +236,7 @@ func (s *Server) handleProjectPatch(w http.ResponseWriter, r *http.Request) {
 	if req.Tags != nil {
 		pd.Project.Tags = req.Tags
 	}
-	pd.Project.UpdatedAt = types.NowISO()
+	pd.Project.UpdatedAt = types.NowTimestamp()
 	if err := s.store.SaveProject(pd.Project); err != nil {
 		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("save project: %v", err))
 		return
@@ -334,7 +334,7 @@ func (s *Server) handleStepCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	now := types.NowISO()
+	now := types.NowTimestamp()
 	step := types.Step{
 		ID: id, Title: req.Title, Status: types.StepTodo,
 		ProjectID: pd.Project.ID, CreatedAt: now, UpdatedAt: now,
@@ -387,7 +387,7 @@ func (s *Server) handleStepAction(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	domain.StepStatusChange(st, next, types.NowISO())
+	domain.StepStatusChange(st, next, types.NowTimestamp())
 	if err := s.store.SaveStep(*st); err != nil {
 		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("save step: %v", err))
 		return
@@ -467,7 +467,7 @@ func (s *Server) handleBlockerCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	now := types.NowISO()
+	now := types.NowTimestamp()
 	blocker := types.Blocker{
 		ID: id, Title: req.Title, Status: types.BlockerWaiting,
 		Reason: req.Reason, ProjectID: pd.Project.ID,
@@ -513,7 +513,7 @@ func (s *Server) handleBlockerResolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target.Status = "resolved"
-	target.UpdatedAt = types.NowISO()
+	target.UpdatedAt = types.NowTimestamp()
 	// SaveBlocker applies step-blocked invariant but does NOT unblock:
 	// unblocking lives here (same rule as `pm blocker resolve`).
 	if err := s.store.SaveBlocker(*target); err != nil {
@@ -604,7 +604,7 @@ func (s *Server) handleDecisionCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	now := types.NowISO()
+	now := types.NowTimestamp()
 	decision := types.Decision{
 		ID: id, Title: req.Title, Reason: req.Reason,
 		Date: now, ProjectID: pd.Project.ID,

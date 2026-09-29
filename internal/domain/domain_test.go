@@ -6,6 +6,16 @@ import (
 	"github.com/xvantz/pm/internal/types"
 )
 
+// mustTS builds a typed timestamp from a readable literal. A typo in a fixture
+// should panic at the call site, not seed a zero time.
+func mustTS(s string) types.Timestamp {
+	ts, err := types.ParseTimestamp(s)
+	if err != nil {
+		panic(err)
+	}
+	return ts
+}
+
 func TestValidateStepStart(t *testing.T) {
 	// Todo → OK
 	err := ValidateStepStart(types.Step{ID: "s1", Status: types.StepTodo})
@@ -90,13 +100,13 @@ func TestHasUnresolvedBlockers(t *testing.T) {
 }
 
 func TestStepStatusChange(t *testing.T) {
-	now := "2025-01-01"
-	s := &types.Step{ID: "s1", Status: types.StepTodo, UpdatedAt: "2024-01-01"}
+	now := mustTS("2025-01-01T12:00:00Z")
+	s := &types.Step{ID: "s1", Status: types.StepTodo, UpdatedAt: mustTS("2024-01-01")}
 	StepStatusChange(s, types.StepInProgress, now)
 	if s.Status != types.StepInProgress {
 		t.Errorf("expected in_progress, got %s", s.Status)
 	}
-	if s.UpdatedAt != now {
+	if !s.UpdatedAt.Equal(now) {
 		t.Errorf("expected %s, got %s", now, s.UpdatedAt)
 	}
 }

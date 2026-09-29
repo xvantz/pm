@@ -289,8 +289,8 @@ func handleListProjects(st store.Store, ctx context.Context, args json.RawMessag
 			Status:    string(p.Status),
 			Tags:      p.Tags,
 			Goal:      p.Goal,
-			CreatedAt: p.CreatedAt,
-			UpdatedAt: p.UpdatedAt,
+			CreatedAt: p.CreatedAt.String(),
+			UpdatedAt: p.UpdatedAt.String(),
 		})
 	}
 
@@ -345,7 +345,7 @@ func handleAddProject(st store.Store, ctx context.Context, args json.RawMessage)
 		return "", fmt.Errorf("generate project id: %w", err)
 	}
 	id := uid.String()
-	now := types.NowISO()
+	now := types.NowTimestamp()
 	nextNum, err := st.NextNumber()
 	if err != nil {
 		return "", fmt.Errorf("next number: %w", err)
@@ -402,7 +402,7 @@ func handleAddStep(st store.Store, ctx context.Context, args json.RawMessage) (s
 		}
 	}
 
-	now := types.NowISO()
+	now := types.NowTimestamp()
 	step := types.Step{
 		ID: id, Title: params.Title,
 		Status: types.StepTodo, ProjectID: pd.Project.ID,
@@ -494,13 +494,13 @@ func advanceStep(st store.Store, projectRef, stepID string, newStatus types.Step
 			}
 
 			pd.Steps[i].Status = newStatus
-			pd.Steps[i].UpdatedAt = types.NowISO()
+			pd.Steps[i].UpdatedAt = types.NowTimestamp()
 
 			if err := st.SaveStep(pd.Steps[i]); err != nil {
 				return "", fmt.Errorf("save step: %w", err)
 			}
 
-			pd.Project.UpdatedAt = types.NowISO()
+			pd.Project.UpdatedAt = types.NowTimestamp()
 			if err := st.SaveProject(pd.Project); err != nil {
 				// Non-fatal
 				slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
@@ -553,7 +553,7 @@ func handleAddBlocker(st store.Store, ctx context.Context, args json.RawMessage)
 		}
 	}
 
-	now := types.NowISO()
+	now := types.NowTimestamp()
 	blocker := types.Blocker{
 		ID: id, Title: params.Title,
 		Status:    types.BlockerWaiting,
@@ -620,7 +620,7 @@ func handleResolveBlocker(st store.Store, ctx context.Context, args json.RawMess
 	}
 
 	blocker.Status = types.BlockerResolved
-	blocker.UpdatedAt = types.NowISO()
+	blocker.UpdatedAt = types.NowTimestamp()
 
 	if err := st.SaveBlocker(*blocker); err != nil {
 		return "", fmt.Errorf("save blocker: %w", err)
@@ -641,7 +641,7 @@ func handleResolveBlocker(st store.Store, ctx context.Context, args json.RawMess
 		}
 	}
 
-	pd.Project.UpdatedAt = types.NowISO()
+	pd.Project.UpdatedAt = types.NowTimestamp()
 	if err := st.SaveProject(pd.Project); err != nil {
 		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
 	}
@@ -677,7 +677,7 @@ func handleAddDecision(st store.Store, ctx context.Context, args json.RawMessage
 		}
 	}
 
-	now := types.NowISO()
+	now := types.NowTimestamp()
 	dec := types.Decision{
 		ID: id, Title: params.Title,
 		Reason: params.Reason, Date: now,
@@ -834,7 +834,7 @@ func handleListDecisions(st store.Store, ctx context.Context, args json.RawMessa
 		items = append(items, jsonDecisionItem{
 			ID:     d.ID,
 			Title:  d.Title,
-			Date:   d.Date,
+			Date:   d.Date.String(),
 			Reason: d.Reason,
 		})
 	}

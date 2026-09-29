@@ -74,7 +74,7 @@ func cmdBlockerAdd(args []string) error {
 		}
 	}
 
-	now := types.NowISO()
+	now := types.NowTimestamp()
 	blocker := types.Blocker{
 		ID: id, Title: title,
 		Status:    types.BlockerWaiting,
@@ -143,7 +143,7 @@ func cmdBlockerResolve(args []string) error {
 
 	// Resolve the blocker in-place (updates pd.Steps so subsequent checks are correct)
 	pd.Steps[stepIdx].Blockers[blockerIdx].Status = types.BlockerResolved
-	pd.Steps[stepIdx].Blockers[blockerIdx].UpdatedAt = types.NowISO()
+	pd.Steps[stepIdx].Blockers[blockerIdx].UpdatedAt = types.NowTimestamp()
 
 	if err := st.SaveBlocker(pd.Steps[stepIdx].Blockers[blockerIdx]); err != nil {
 		return fmt.Errorf("save blocker: %w", err)
@@ -164,7 +164,7 @@ func cmdBlockerResolve(args []string) error {
 		}
 	}
 
-	pd.Project.UpdatedAt = types.NowISO()
+	pd.Project.UpdatedAt = types.NowTimestamp()
 	if err := st.SaveProject(pd.Project); err != nil {
 		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
 	}
