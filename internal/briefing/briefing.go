@@ -152,6 +152,17 @@ func Generate(cfg Config) (*Briefing, error) {
 		projects = []types.Project{pd.Project}
 	}
 
+	// The requested day is a calendar day in the reader's zone. Parsed leniently:
+	// an unrecognised `date` argument falls back to today rather than failing.
+	// `date` is rewritten to match, so the response never labels itself with a
+	// day it did not compute — a briefing dated "not-a-date" while counting
+	// today is a lie in the output, not just a cosmetic wart.
+	briefingDate, err := time.ParseInLocation(dayLayout, date, loc)
+	if err != nil {
+		briefingDate = time.Now().In(loc)
+		date = briefingDate.Format(dayLayout)
+	}
+
 	b := &Briefing{
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Date:        date,
@@ -163,13 +174,6 @@ func Generate(cfg Config) (*Briefing, error) {
 	projectsMoved := 0
 	totalBlocked := 0
 	longBlockers := []BlockedItem{}
-
-	// The requested day is a calendar day in the reader's zone. Parsed leniently:
-	// an unrecognised `date` argument falls back to today, as before.
-	briefingDate, err := time.ParseInLocation(dayLayout, date, loc)
-	if err != nil {
-		briefingDate = time.Now().In(loc)
-	}
 
 	weekStart := briefingDate.AddDate(0, 0, -7)
 
