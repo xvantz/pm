@@ -97,13 +97,22 @@
 
 ## Phase 4: Merge + archive
 
-- [ ] 4.1 Ветка + PR в main, CI green
+- [x] 4.1 Ветка + PR в main, CI green
   **DoD:** Forgejo run success на PR; `openspec validate --all --strict` zero-fail
-- [ ] 4.2 Архив
+  **Результат:** ветка `fix/event-time`, PR #23
+  (https://git.827482.xyz/xvantz/pm/pulls/23), CI run 749 `success`,
+  `validate --all --strict` 12 passed / 0 failed. 3 коммита, 29 файлов.
+- [x] 4.2 Архив
   **DoD:** `openspec list` без `fix-event-time`; baseline `project-store` содержит
   timestamp contract; `git grep '2006-01-02'` в коде не находит парсеров дат
-- [ ] 4.3 Отметка в пуле: P6 закрыт
+  **Результат:** `openspec archive fix-event-time` выполнен в этом же PR, последним
+  коммитом. Дельта перенесена в baseline `project-store/spec.md`: Event timestamps,
+  Calendar-day bucketing, Unreadable timestamps are loud. В коде остались только
+  `writeLayout`/`legacyDateLayout` в `types/timestamp.go` и `dayLayout` в брифинге —
+  это форматы, не парсеры.
+- [x] 4.3 Отметка в пуле: P6 закрыт
   **DoD:** в `chore-remarks-pool/tasks.md` пункт P6 = `[x]` со ссылкой на PR
+  **Результат:** P6 = `[x]` с описанием, ссылка на PR #23.
 
 ## Границы
 
