@@ -124,8 +124,8 @@ pm-mcp is a JSON-RPC 2.0 server over stdio with NDJSON framing. 13 tools:
 | `close_project` | bulk-close: requires consent (see below) |
 | `delete_project` | move to trash (prefer close for finished work) |
 | `get_briefing` | generate a digest |
-| `list_steps` | project steps, briefly (id/title/status/updated_at) |
-| `list_blockers` | blockers (JSON) |
+| `list_steps` | project steps, briefly (id/title/status/updated_at/blocker_ids) |
+| `list_blockers` | blockers (JSON), optional step_id filter |
 | `list_decisions` | decisions (JSON) |
 
 In remote mode pm-mcp needs no data directory at all — only `PM_API` + `PM_TOKEN`.
@@ -315,8 +315,9 @@ into your context.
 | Question | Tool | Cost |
 |---|---|---|
 | "Where does this stand?" | `get_project` | summary: counts by status, open blockers, last completed step, plus a hint naming the next call |
-| "Which steps are there?" | `list_steps` | id, title, status, updated_at per step |
+| "Which steps are there?" | `list_steps` | id, title, status, updated_at, blocker_ids per step |
 | "What is on this one step?" | `get_step` | that step in full, with blockers and artifacts |
+| "What blocks this step?" | `list_steps` → `blocker_ids`, then `get_step` or `list_blockers` with `step_id` | ids are cheap, reasons stay in the detail level |
 
 `get_project` used to return everything, and a detailed read of one project
 cost more than listing every project — 2 195 B against 1 755 B, which inverts

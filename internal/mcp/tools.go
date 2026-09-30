@@ -173,7 +173,7 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "list_steps",
-			Description: "List a project's steps briefly: id, title, status, updated_at. For one step's blockers or artifacts use get_step.",
+			Description: "List a project's steps briefly: id, title, status, updated_at, blocker_ids. For one step's blocker reasons or artifacts use get_step.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -185,11 +185,12 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "list_blockers",
-			Description: "List all blockers in a project",
+			Description: "List blockers in a project, grouped by step. Pass step_id to narrow to one step.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"project_id": {"type": "string", "description": "Project number or UUID"}
+					"project_id": {"type": "string", "description": "Project number or UUID"},
+					"step_id": {"type": "string", "description": "Step slug/ID to narrow to (optional)"}
 				},
 				"required": ["project_id"]
 			}`),
@@ -426,11 +427,14 @@ func handleGetProject(st store.Store, ctx context.Context, args json.RawMessage)
 }
 
 // jsonStepBrief is one step in a list: enough to plan, not enough to dump.
+// blocker_ids names the step's blockers without carrying them: the caller
+// learns which get_step or resolve_blocker to call next.
 type jsonStepBrief struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Status    string `json:"status"`
-	UpdatedAt string `json:"updated_at,omitempty"`
+	ID         string   `json:"id"`
+	Title      string   `json:"title"`
+	Status     string   `json:"status"`
+	UpdatedAt  string   `json:"updated_at,omitempty"`
+	BlockerIDs []string `json:"blocker_ids"`
 }
 
 func handleListSteps(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
@@ -446,11 +450,16 @@ func handleListSteps(st store.Store, ctx context.Context, args json.RawMessage) 
 	}
 	items := make([]jsonStepBrief, 0, len(pd.Steps))
 	for _, st := range pd.Steps {
+		ids := make([]string, 0, len(st.Blockers))
+		for _, b := range st.Blockers {
+			ids = append(ids, b.ID)
+		}
 		items = append(items, jsonStepBrief{
-			ID:        st.ID,
-			Title:     st.Title,
-			Status:    string(st.Status),
-			UpdatedAt: st.UpdatedAt.String(),
+			ID:         st.ID,
+			Title:      st.Title,
+			Status:     string(st.Status),
+			UpdatedAt:  st.UpdatedAt.String(),
+			BlockerIDs: ids,
 		})
 	}
 	data, err := json.Marshal(map[string]any{"count": len(items), "steps": items})
@@ -898,6 +907,7 @@ func handleGetBriefing(st store.Store, ctx context.Context, args json.RawMessage
 func handleListBlockers(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		ProjectID string `json:"project_id"`
+		StepID    string `json:"step_id,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", fmt.Errorf("invalid args: %w", err)
@@ -909,7 +919,12 @@ func handleListBlockers(st store.Store, ctx context.Context, args json.RawMessag
 	}
 
 	groups := make([]jsonBlockerGroup, 0)
+	foundStep := params.StepID == ""
 	for _, s := range pd.Steps {
+		if params.StepID != "" && s.ID != params.StepID {
+			continue
+		}
+		foundStep = true
 		if len(s.Blockers) > 0 {
 			blockers := make([]jsonBlockerItem, 0, len(s.Blockers))
 			for _, bl := range s.Blockers {
@@ -926,6 +941,9 @@ func handleListBlockers(st store.Store, ctx context.Context, args json.RawMessag
 				Blockers:  blockers,
 			})
 		}
+	}
+	if params.StepID != "" && !foundStep {
+		return "", fmt.Errorf("step %q not found in project #%d", params.StepID, pd.Project.Number)
 	}
 
 	data, err := json.Marshal(map[string]any{
