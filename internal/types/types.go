@@ -1,7 +1,5 @@
 package types
 
-import "time"
-
 type ProjectStatus string
 
 const (
@@ -36,9 +34,9 @@ type Project struct {
 	Goal        string        `yaml:"goal,omitempty" json:"goal,omitempty"`
 	Status      ProjectStatus `yaml:"status" json:"status"`
 	Tags        []string      `yaml:"tags,omitempty" json:"tags,omitempty"`
-	CreatedAt   string        `yaml:"created_at" json:"created_at"`
-	UpdatedAt   string        `yaml:"updated_at" json:"updated_at"`
-	CompletedAt string        `yaml:"completed_at,omitempty" json:"completed_at,omitempty"`
+	CreatedAt   Timestamp     `yaml:"created_at" json:"created_at"`
+	UpdatedAt   Timestamp     `yaml:"updated_at" json:"updated_at"`
+	CompletedAt Timestamp     `yaml:"completed_at,omitempty" json:"completed_at,omitempty"`
 }
 
 type Step struct {
@@ -48,8 +46,8 @@ type Step struct {
 	ProjectID string     `yaml:"project_id" json:"project_id"`
 	Blockers  []Blocker  `yaml:"blockers,omitempty" json:"blockers,omitempty"`
 	Artifacts []string   `yaml:"artifacts,omitempty" json:"artifacts,omitempty"`
-	CreatedAt string     `yaml:"created_at,omitempty" json:"created_at,omitempty"`
-	UpdatedAt string     `yaml:"updated_at,omitempty" json:"updated_at,omitempty"`
+	CreatedAt Timestamp  `yaml:"created_at,omitempty" json:"created_at,omitempty"`
+	UpdatedAt Timestamp  `yaml:"updated_at,omitempty" json:"updated_at,omitempty"`
 }
 
 type Blocker struct {
@@ -59,16 +57,16 @@ type Blocker struct {
 	Status    BlockerStatus `yaml:"status" json:"status"`
 	ProjectID string        `yaml:"project_id" json:"project_id"`
 	StepID    string        `yaml:"step_id" json:"step_id"`
-	CreatedAt string        `yaml:"created_at,omitempty" json:"created_at,omitempty"`
-	UpdatedAt string        `yaml:"updated_at,omitempty" json:"updated_at,omitempty"`
+	CreatedAt Timestamp     `yaml:"created_at,omitempty" json:"created_at,omitempty"`
+	UpdatedAt Timestamp     `yaml:"updated_at,omitempty" json:"updated_at,omitempty"`
 }
 
 type Decision struct {
-	ID        string `yaml:"id" json:"id"`
-	Title     string `yaml:"title" json:"title"`
-	Reason    string `yaml:"reason,omitempty" json:"reason,omitempty"`
-	Date      string `yaml:"date" json:"date"`
-	ProjectID string `yaml:"project_id" json:"project_id"`
+	ID        string    `yaml:"id" json:"id"`
+	Title     string    `yaml:"title" json:"title"`
+	Reason    string    `yaml:"reason,omitempty" json:"reason,omitempty"`
+	Date      Timestamp `yaml:"date" json:"date"`
+	ProjectID string    `yaml:"project_id" json:"project_id"`
 }
 
 type ProjectData struct {
@@ -77,6 +75,7 @@ type ProjectData struct {
 	Decisions []Decision `json:"decisions"`
 }
 
-func NowISO() string {
-	return time.Now().UTC().Format("2006-01-02")
-}
+// NowISO was the old date-only writer and is gone: every call site now uses
+// NowTimestamp, which returns the typed value that cannot be string-compared.
+// Nothing references it — that is the point, a shim would be an escape hatch
+// back to a plain string event time.

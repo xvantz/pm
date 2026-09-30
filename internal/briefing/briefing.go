@@ -3,6 +3,7 @@ package briefing
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -11,13 +12,20 @@ import (
 	"github.com/xvantz/pm/internal/types"
 )
 
-const dateFormat = "2006-01-02"
+// dayLayout is the calendar-day key used for bucketing and for the `date`
+// query parameter. It is a presentation format, not an event format: event
+// times are types.Timestamp (RFC3339 UTC).
+const dayLayout = "2006-01-02"
 
 type Briefing struct {
-	GeneratedAt     string           `json:"generated_at"`
-	Date            string           `json:"date"`
-	Summary         Summary          `json:"summary"`
-	Sections        []Section        `json:"sections"`
+	GeneratedAt string    `json:"generated_at"`
+	Date        string    `json:"date"`
+	Summary     Summary   `json:"summary"`
+	Sections    []Section `json:"sections"`
+	// DataWarnings lists every event time that could not be read. Non-empty
+	// means the counts above are incomplete and the caller should say so
+	// rather than present partial numbers as whole.
+	DataWarnings    []string         `json:"data_warnings,omitempty"`
 	Recommendations []Recommendation `json:"recommendations"`
 }
 
@@ -73,14 +81,53 @@ type Recommendation struct {
 type Config struct {
 	Context       context.Context // optional, checked before long operations
 	Store         store.Store
-	Date          string // ISO date to generate briefing for (default: today)
+	Date          string // calendar day to generate briefing for (YYYY-MM-DD, default: today)
 	FilterProject string // project ref (number or UUID) for single-project briefing
+
+	// Loc is the time zone used to decide which calendar day an event belongs
+	// to. Nil means time.Local, which for the daemon is the host zone. The
+	// single-writer daemon is the thing that defines "today" for every client,
+	// so the day must not be decided in UTC: a step closed at 01:00 local time
+	// is today's work, not yesterday's.
+	Loc *time.Location
+}
+
+// loc resolves the zone once, so every count in one run agrees.
+func (c Config) loc() *time.Location {
+	if c.Loc != nil {
+		return c.Loc
+	}
+	return time.Local
+}
+
+// warn records an unreadable event time. Loud by design: a zero time silently
+// subtracted from a total is how a briefing ends up lying with a straight face.
+func (b *Briefing) warn(entity, field, raw string) {
+	slog.Warn("briefing: unparseable timestamp",
+		"entity", entity, "field", field, "raw", raw)
+	b.DataWarnings = append(b.DataWarnings,
+		fmt.Sprintf("%s.%s: unparseable timestamp %q — counts exclude it", entity, field, raw))
+}
+
+// dayKey buckets an event into a calendar day in loc, reporting an unreadable
+// stamp instead of treating it as the epoch.
+func dayKey(ts types.Timestamp, loc *time.Location) (string, bool) {
+	if _, invalid := ts.Invalid(); invalid {
+		return "", false
+	}
+	if ts.IsZero() {
+		return "", true
+	}
+	return ts.DayKey(loc), true
 }
 
 func Generate(cfg Config) (*Briefing, error) {
+	loc := cfg.loc()
 	date := cfg.Date
 	if date == "" {
-		date = time.Now().UTC().Format(dateFormat)
+		// Today in the reader's zone, not in UTC: the day a user means is the
+		// one their clock says.
+		date = time.Now().In(loc).Format(dayLayout)
 	}
 
 	if cfg.Context != nil {
@@ -117,9 +164,11 @@ func Generate(cfg Config) (*Briefing, error) {
 	totalBlocked := 0
 	longBlockers := []BlockedItem{}
 
-	briefingDate := parseDate(date)
-	if briefingDate.IsZero() {
-		briefingDate = time.Now().UTC()
+	// The requested day is a calendar day in the reader's zone. Parsed leniently:
+	// an unrecognised `date` argument falls back to today, as before.
+	briefingDate, err := time.ParseInLocation(dayLayout, date, loc)
+	if err != nil {
+		briefingDate = time.Now().In(loc)
 	}
 
 	weekStart := briefingDate.AddDate(0, 0, -7)
@@ -131,8 +180,8 @@ func Generate(cfg Config) (*Briefing, error) {
 		}
 
 		ps := buildProjectSection(*pd)
-		stepsDoneToday := countStepsOnDate(pd.Steps, date, types.StepDone)
-		stepsDoneThisWeek := countStepsSince(pd.Steps, weekStart, types.StepDone)
+		stepsDoneToday := countStepsOnDay(pd.Steps, date, types.StepDone, loc, b)
+		stepsDoneThisWeek := countStepsSince(pd.Steps, weekStart, types.StepDone, loc, b)
 		todaySteps += stepsDoneToday
 		weekSteps += stepsDoneThisWeek
 		if stepsDoneToday > 0 {
@@ -150,7 +199,11 @@ func Generate(cfg Config) (*Briefing, error) {
 
 				for _, bl := range collectBlockers(pd.Steps) {
 					if bl.Status == types.BlockerActive || bl.Status == types.BlockerWaiting {
-						days := blockerDaysAlive(bl, briefingDate)
+						days, ok := blockerDaysAlive(bl, briefingDate, loc)
+						if !ok {
+							b.warn(fmt.Sprintf("blocker %s/%s", p.ID, bl.ID), "created_at", blockerRaw(bl))
+							continue
+						}
 						if days > 7 {
 							longBlockers = append(longBlockers, BlockedItem{
 								ProjectID: p.ID, ProjectTitle: p.Title,
@@ -253,11 +306,18 @@ func buildProjectSection(pd types.ProjectData) ProjectSection {
 	total := len(pd.Steps)
 	done := 0
 	var lastDone types.Step
+	var lastDoneAt types.Timestamp
 	for _, s := range pd.Steps {
 		if s.Status == types.StepDone {
 			done++
-			if lastDone.UpdatedAt == "" || s.UpdatedAt > lastDone.UpdatedAt {
-				lastDone = s
+			// Compare as instants, not as strings. The old string comparison
+			// only held while every value was a date; with RFC3339 it would
+			// silently pick the wrong "last step".
+			if _, invalid := s.UpdatedAt.Invalid(); !invalid && !s.UpdatedAt.IsZero() {
+				if lastDoneAt.IsZero() || s.UpdatedAt.After(lastDoneAt) {
+					lastDone = s
+					lastDoneAt = s.UpdatedAt
+				}
 			}
 		}
 		if s.Status == types.StepTodo || s.Status == types.StepInProgress {
@@ -275,24 +335,47 @@ func buildProjectSection(pd types.ProjectData) ProjectSection {
 	return ps
 }
 
-func countStepsOnDate(steps []types.Step, date string, status types.StepStatus) int {
+// countStepsOnDay counts steps last touched on the given calendar day in loc.
+//
+// This replaces an `s.UpdatedAt == date` string comparison that could never
+// match once timestamps became RFC3339 — it failed silently, reporting zero
+// completed steps while looking perfectly healthy. Bucketing by day in the
+// reader's zone is both correct and immune to the format change.
+func countStepsOnDay(steps []types.Step, day string, status types.StepStatus, loc *time.Location, b *Briefing) int {
 	count := 0
 	for _, s := range steps {
-		if s.Status == status && s.UpdatedAt == date {
+		if s.Status != status {
+			continue
+		}
+		key, ok := dayKey(s.UpdatedAt, loc)
+		if !ok {
+			b.warn(fmt.Sprintf("step %s", s.ID), "updated_at", rawOf(s.UpdatedAt))
+			continue
+		}
+		if key == day {
 			count++
 		}
 	}
 	return count
 }
 
-func countStepsSince(steps []types.Step, since time.Time, status types.StepStatus) int {
+// countStepsSince counts steps touched at or after `since` (an instant).
+func countStepsSince(steps []types.Step, since time.Time, status types.StepStatus, loc *time.Location, b *Briefing) int {
 	count := 0
 	for _, s := range steps {
-		if s.Status == status {
-			t := parseDate(s.UpdatedAt)
-			if !t.IsZero() && (t.Equal(since) || t.After(since)) {
-				count++
-			}
+		if s.Status != status {
+			continue
+		}
+		if raw, invalid := s.UpdatedAt.Invalid(); invalid {
+			b.warn(fmt.Sprintf("step %s", s.ID), "updated_at", raw)
+			continue
+		}
+		if s.UpdatedAt.IsZero() {
+			continue
+		}
+		_ = loc
+		if !s.UpdatedAt.Time.Before(since) {
+			count++
 		}
 	}
 	return count
@@ -316,27 +399,48 @@ func countActiveBlockers(steps []types.Step) int {
 	return count
 }
 
-func blockerDaysAlive(b types.Blocker, now time.Time) int {
-	if b.CreatedAt == "" {
-		return 0
-	}
-	created := parseDate(b.CreatedAt)
-	if created.IsZero() {
-		return 0
-	}
-	days := int(now.Sub(created).Hours() / 24)
-	if days < 0 {
-		return 0
-	}
-	return days
+// blockerRaw returns the offending text of an unreadable stamp, for the warning.
+func blockerRaw(b types.Blocker) string {
+	raw, _ := b.CreatedAt.Invalid()
+	return raw
 }
 
-func parseDate(s string) time.Time {
-	t, err := time.Parse(dateFormat, s)
-	if err != nil {
-		return time.Time{}
+func rawOf(ts types.Timestamp) string {
+	raw, _ := ts.Invalid()
+	return raw
+}
+
+// blockerDaysAlive reports the number of calendar days since the blocker was
+// created, in loc.
+//
+// Both ends are truncated to local midnight first, so the answer is a
+// calendar difference ("8 days since the 21st") rather than elapsed 24-hour
+// steps. Elapsed steps drift: a blocker created at 02:00 on the 21st would
+// report 9 days on the 29th at noon, which is a number nobody says out loud.
+//
+// The second return value is false when the timestamp is unreadable — the
+// caller warns instead of reporting a fabricated zero.
+func blockerDaysAlive(b types.Blocker, now time.Time, loc *time.Location) (int, bool) {
+	if _, invalid := b.CreatedAt.Invalid(); invalid {
+		return 0, false
 	}
-	return t
+	if b.CreatedAt.IsZero() {
+		return 0, true
+	}
+	// Both ends must be expressed in the SAME zone before taking calendar
+	// fields: reading Year/Month/Day off a UTC instant while `now` is local
+	// silently mixes the two calendars and drifts by a day near midnight.
+	createdLocal := b.CreatedAt.Time.In(loc)
+	todayLocal := now.In(loc)
+	createdDay := time.Date(createdLocal.Year(), createdLocal.Month(), createdLocal.Day(),
+		0, 0, 0, 0, loc)
+	todayDay := time.Date(todayLocal.Year(), todayLocal.Month(), todayLocal.Day(),
+		0, 0, 0, 0, loc)
+	days := int(todayDay.Sub(createdDay).Hours() / 24)
+	if days < 0 {
+		return 0, true
+	}
+	return days, true
 }
 
 func generateRecommendations(active, blocked []ProjectSection, projects []types.Project, cfg Config) []Recommendation {

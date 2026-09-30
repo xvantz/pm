@@ -282,7 +282,7 @@ func (s *FileStore) CloseProject(ref, reason string) error {
 	if strings.TrimSpace(reason) == "" {
 		reason = "bulk close"
 	}
-	now := types.NowISO()
+	now := types.NowTimestamp()
 	closed := 0
 	for _, st := range pd.Steps {
 		if st.Status == types.StepDone {
@@ -384,7 +384,7 @@ func (s *FileStore) touchProject(projectID string) {
 		slog.Warn("touch project parse", "project", projectID, "error", err)
 		return
 	}
-	p.UpdatedAt = types.NowISO()
+	p.UpdatedAt = types.NowTimestamp()
 	if err := writeYAMLAtomic(projectPath, p); err != nil {
 		slog.Warn("touch project write", "project", projectID, "error", err)
 	}

@@ -60,7 +60,7 @@ func cmdStepAdd(args []string) error {
 		}
 	}
 
-	now := types.NowISO()
+	now := types.NowTimestamp()
 	step := types.Step{
 		ID: id, Title: title, Status: types.StepTodo,
 		ProjectID: pd.Project.ID, CreatedAt: now, UpdatedAt: now,
@@ -105,13 +105,13 @@ func cmdStepStart(args []string) error {
 				return err
 			}
 
-			domain.StepStatusChange(&pd.Steps[i], types.StepInProgress, types.NowISO())
+			domain.StepStatusChange(&pd.Steps[i], types.StepInProgress, types.NowTimestamp())
 
 			if err := st.SaveStep(pd.Steps[i]); err != nil {
 				return fmt.Errorf("save step: %w", err)
 			}
 
-			pd.Project.UpdatedAt = types.NowISO()
+			pd.Project.UpdatedAt = types.NowTimestamp()
 			if err := st.SaveProject(pd.Project); err != nil {
 				slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
 			}
@@ -147,13 +147,13 @@ func cmdStepReview(args []string) error {
 				return err
 			}
 
-			domain.StepStatusChange(&pd.Steps[i], types.StepReview, types.NowISO())
+			domain.StepStatusChange(&pd.Steps[i], types.StepReview, types.NowTimestamp())
 
 			if err := st.SaveStep(pd.Steps[i]); err != nil {
 				return fmt.Errorf("save step: %w", err)
 			}
 
-			pd.Project.UpdatedAt = types.NowISO()
+			pd.Project.UpdatedAt = types.NowTimestamp()
 			if err := st.SaveProject(pd.Project); err != nil {
 				slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
 			}
@@ -189,13 +189,13 @@ func cmdStepDone(args []string) error {
 				return err
 			}
 
-			domain.StepStatusChange(&pd.Steps[i], types.StepDone, types.NowISO())
+			domain.StepStatusChange(&pd.Steps[i], types.StepDone, types.NowTimestamp())
 
 			if err := st.SaveStep(pd.Steps[i]); err != nil {
 				return fmt.Errorf("save step: %w", err)
 			}
 
-			pd.Project.UpdatedAt = types.NowISO()
+			pd.Project.UpdatedAt = types.NowTimestamp()
 			if err := st.SaveProject(pd.Project); err != nil {
 				slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
 			}

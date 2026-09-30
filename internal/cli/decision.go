@@ -60,7 +60,7 @@ func cmdDecisionAdd(args []string) error {
 		}
 	}
 
-	now := types.NowISO()
+	now := types.NowTimestamp()
 	dec := types.Decision{
 		ID: id, Title: title,
 		Reason: *reason, Date: now,

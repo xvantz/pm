@@ -71,7 +71,7 @@ func cmdDelStep(args []string) error {
 		return fmt.Errorf("delete step: %w", err)
 	}
 
-	pd.Project.UpdatedAt = types.NowISO()
+	pd.Project.UpdatedAt = types.NowTimestamp()
 	if err := st.SaveProject(pd.Project); err != nil {
 		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
 	}
@@ -101,7 +101,7 @@ func cmdDelBlocker(args []string) error {
 		return fmt.Errorf("delete blocker: %w", err)
 	}
 
-	pd.Project.UpdatedAt = types.NowISO()
+	pd.Project.UpdatedAt = types.NowTimestamp()
 	if err := st.SaveProject(pd.Project); err != nil {
 		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
 	}
@@ -131,7 +131,7 @@ func cmdDelDecision(args []string) error {
 		return fmt.Errorf("delete decision: %w", err)
 	}
 
-	pd.Project.UpdatedAt = types.NowISO()
+	pd.Project.UpdatedAt = types.NowTimestamp()
 	if err := st.SaveProject(pd.Project); err != nil {
 		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
 	}

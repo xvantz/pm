@@ -4,6 +4,16 @@ import (
 	"testing"
 )
 
+// MustParse is a test helper: a bad fixture should fail loudly at the call
+// site instead of silently seeding a zero timestamp.
+func MustParse(s string) Timestamp {
+	ts, err := ParseTimestamp(s)
+	if err != nil {
+		panic(err)
+	}
+	return ts
+}
+
 func TestProjectDefaults(t *testing.T) {
 	p := Project{
 		ID: "test", Title: "Test",
@@ -18,7 +28,7 @@ func TestProjectDefaults(t *testing.T) {
 		t.Errorf("Status = %q, want %q", p.Status, StatusActive)
 	}
 
-	if p.CreatedAt != "" {
+	if !p.CreatedAt.IsZero() {
 		t.Errorf("CreatedAt should be empty, got %q", p.CreatedAt)
 	}
 }
@@ -127,7 +137,7 @@ func TestProjectDataComposition(t *testing.T) {
 			},
 		},
 		Decisions: []Decision{
-			{ID: "dec1", Title: "Decision 1", Date: "2026-06-14", ProjectID: "test"},
+			{ID: "dec1", Title: "Decision 1", Date: MustParse("2026-06-14"), ProjectID: "test"},
 		},
 	}
 

@@ -14,3 +14,9 @@
 
 - Affected specs: `serve-api` (MODIFIED: Nix options + env контракт), `cli-lifecycle` (MODIFIED: Doctor).
 - Affected code: `flake.nix`, `internal/cli/doctor*.go`, dotfiles `hermes.nix` (кросс-репо часть).
+
+**Граница с fix-event-time:** счётчик legacy/битых меток в `pm doctor` и правило
+зоны дня уже реализованы и специфицированы в `fix-event-time`
+(`project-store`: Event timestamps, Calendar-day bucketing). Этот ченж НЕ трогает
+эти аспекты: его `MODIFIED: Doctor` касается только разделения file-vs-daemon
+проверок и вывода про PM_API/PM_DIR. Не дублировать.

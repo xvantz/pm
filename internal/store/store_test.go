@@ -9,6 +9,8 @@ import (
 	"github.com/xvantz/pm/internal/types"
 )
 
+// mustTS comes from mock.go (same package).
+
 func TestMockStore_ListProjects(t *testing.T) {
 	s := NewMockStore()
 	projects, err := s.ListProjects()
@@ -156,7 +158,7 @@ func TestFileStore_CreateAndRead(t *testing.T) {
 		ID: "0196f1b0-0000-7000-8000-000000000001", Number: 1,
 		Title: "Test Project", Goal: "Testing",
 		Status: types.StatusActive, Tags: []string{"test"},
-		CreatedAt: "2026-06-14",
+		CreatedAt: mustTS("2026-06-14"),
 	}
 
 	if err := s.SaveProject(p); err != nil {
@@ -187,7 +189,7 @@ func TestFileStore_ResolveByNumber(t *testing.T) {
 
 	p := types.Project{
 		ID: "0196f1b0-0000-7000-8000-000000000001", Number: 42,
-		Title: "Answer", Status: types.StatusActive, CreatedAt: "2026-06-14",
+		Title: "Answer", Status: types.StatusActive, CreatedAt: mustTS("2026-06-14"),
 	}
 	s.SaveProject(p)
 
@@ -253,7 +255,7 @@ func TestFileStore_NextNumber(t *testing.T) {
 	// Full workflow: create project using NextNumber + SaveProject + AdvanceNextNumber
 	p := types.Project{
 		ID: "0196f1b0-0000-7000-8000-000000000005", Number: 6,
-		Title: "Test", Status: types.StatusActive, CreatedAt: "2026-06-14",
+		Title: "Test", Status: types.StatusActive, CreatedAt: mustTS("2026-06-14"),
 	}
 	if err := s.SaveProject(p); err != nil {
 		t.Fatalf("SaveProject() error = %v", err)
@@ -277,7 +279,7 @@ func TestFileStore_SaveAndReadStep(t *testing.T) {
 	pid := "0196f1b0-0000-7000-8000-000000000010"
 	p := types.Project{
 		ID: pid, Number: 10, Title: "Test Project",
-		Status: types.StatusActive, CreatedAt: "2026-06-14",
+		Status: types.StatusActive, CreatedAt: mustTS("2026-06-14"),
 	}
 	if err := s.SaveProject(p); err != nil {
 		t.Fatalf("SaveProject() error = %v", err)
@@ -344,7 +346,7 @@ func TestFileStore_SaveBlocker(t *testing.T) {
 	s := NewFileStore(dir)
 
 	pid := "0196f1b0-0000-7000-8000-000000000020"
-	p := types.Project{ID: pid, Number: 20, Title: "Blocker Test", Status: types.StatusActive, CreatedAt: "2026-06-14"}
+	p := types.Project{ID: pid, Number: 20, Title: "Blocker Test", Status: types.StatusActive, CreatedAt: mustTS("2026-06-14")}
 	if err := s.SaveProject(p); err != nil {
 		t.Fatalf("SaveProject() error = %v", err)
 	}
@@ -357,7 +359,7 @@ func TestFileStore_SaveBlocker(t *testing.T) {
 	blocker := types.Blocker{
 		ID: "my-blocker", Title: "My Blocker",
 		Status: types.BlockerWaiting, Reason: "no budget",
-		ProjectID: pid, StepID: "my-step", CreatedAt: "2026-06-14",
+		ProjectID: pid, StepID: "my-step", CreatedAt: mustTS("2026-06-14"),
 	}
 	if err := s.SaveBlocker(blocker); err != nil {
 		t.Fatalf("SaveBlocker() error = %v", err)
@@ -401,7 +403,7 @@ func TestFileStore_ResolveBlocker_UnblocksStep(t *testing.T) {
 	s := NewFileStore(dir)
 
 	pid := "0196f1b0-0000-7000-8000-000000000021"
-	p := types.Project{ID: pid, Number: 21, Title: "Resolve Test", Status: types.StatusActive, CreatedAt: "2026-06-14"}
+	p := types.Project{ID: pid, Number: 21, Title: "Resolve Test", Status: types.StatusActive, CreatedAt: mustTS("2026-06-14")}
 	s.SaveProject(p)
 
 	step := types.Step{ID: "blocked-step", Title: "Blocked Step", Status: types.StepTodo, ProjectID: pid}
@@ -409,7 +411,7 @@ func TestFileStore_ResolveBlocker_UnblocksStep(t *testing.T) {
 
 	blocker := types.Blocker{
 		ID: "the-blocker", Title: "The Blocker", Status: types.BlockerWaiting,
-		ProjectID: pid, StepID: "blocked-step", CreatedAt: "2026-06-14",
+		ProjectID: pid, StepID: "blocked-step", CreatedAt: mustTS("2026-06-14"),
 	}
 	s.SaveBlocker(blocker)
 
@@ -433,10 +435,10 @@ func TestFileStore_SaveDecision(t *testing.T) {
 	s := NewFileStore(dir)
 
 	pid := "0196f1b0-0000-7000-8000-000000000030"
-	p := types.Project{ID: pid, Number: 30, Title: "Decision Test", Status: types.StatusActive, CreatedAt: "2026-06-14"}
+	p := types.Project{ID: pid, Number: 30, Title: "Decision Test", Status: types.StatusActive, CreatedAt: mustTS("2026-06-14")}
 	s.SaveProject(p)
 
-	dec := types.Decision{ID: "use-go", Title: "Use Go", Reason: "single binary", Date: "2026-06-14", ProjectID: pid}
+	dec := types.Decision{ID: "use-go", Title: "Use Go", Reason: "single binary", Date: mustTS("2026-06-14"), ProjectID: pid}
 	if err := s.SaveDecision(dec); err != nil {
 		t.Fatalf("SaveDecision() error = %v", err)
 	}
@@ -465,7 +467,7 @@ func TestFileStore_DeleteProject(t *testing.T) {
 	s := NewFileStore(dir)
 
 	pid := "0196f1b0-0000-7000-8000-000000000040"
-	p := types.Project{ID: pid, Number: 40, Title: "To Delete", Status: types.StatusActive, CreatedAt: "2026-06-14"}
+	p := types.Project{ID: pid, Number: 40, Title: "To Delete", Status: types.StatusActive, CreatedAt: mustTS("2026-06-14")}
 	s.SaveProject(p)
 
 	if err := s.DeleteProject(pid); err != nil {
@@ -488,7 +490,7 @@ func TestFileStore_DeleteStep(t *testing.T) {
 	s := NewFileStore(dir)
 
 	pid := "0196f1b0-0000-7000-8000-000000000050"
-	p := types.Project{ID: pid, Number: 50, Title: "Step Delete", Status: types.StatusActive, CreatedAt: "2026-06-14"}
+	p := types.Project{ID: pid, Number: 50, Title: "Step Delete", Status: types.StatusActive, CreatedAt: mustTS("2026-06-14")}
 	s.SaveProject(p)
 
 	s.SaveStep(types.Step{ID: "keep", Title: "Keep", Status: types.StepTodo, ProjectID: pid})
@@ -512,14 +514,14 @@ func TestFileStore_DeleteBlocker(t *testing.T) {
 	s := NewFileStore(dir)
 
 	pid := "0196f1b0-0000-7000-8000-000000000060"
-	p := types.Project{ID: pid, Number: 60, Title: "Blocker Delete", Status: types.StatusActive, CreatedAt: "2026-06-14"}
+	p := types.Project{ID: pid, Number: 60, Title: "Blocker Delete", Status: types.StatusActive, CreatedAt: mustTS("2026-06-14")}
 	s.SaveProject(p)
 
 	step := types.Step{ID: "my-step", Title: "My Step", Status: types.StepTodo, ProjectID: pid}
 	s.SaveStep(step)
 
-	b1 := types.Blocker{ID: "b1", Title: "Blocker 1", Status: types.BlockerWaiting, ProjectID: pid, StepID: "my-step", CreatedAt: "2026-06-14"}
-	b2 := types.Blocker{ID: "b2", Title: "Blocker 2", Status: types.BlockerWaiting, ProjectID: pid, StepID: "my-step", CreatedAt: "2026-06-14"}
+	b1 := types.Blocker{ID: "b1", Title: "Blocker 1", Status: types.BlockerWaiting, ProjectID: pid, StepID: "my-step", CreatedAt: mustTS("2026-06-14")}
+	b2 := types.Blocker{ID: "b2", Title: "Blocker 2", Status: types.BlockerWaiting, ProjectID: pid, StepID: "my-step", CreatedAt: mustTS("2026-06-14")}
 	s.SaveBlocker(b1)
 	s.SaveBlocker(b2)
 
@@ -546,13 +548,13 @@ func TestFileStore_DeleteLastBlocker_UnblocksStep(t *testing.T) {
 	s := NewFileStore(dir)
 
 	pid := "0196f1b0-0000-7000-8000-000000000061"
-	p := types.Project{ID: pid, Number: 61, Title: "Last Blocker Delete", Status: types.StatusActive, CreatedAt: "2026-06-14"}
+	p := types.Project{ID: pid, Number: 61, Title: "Last Blocker Delete", Status: types.StatusActive, CreatedAt: mustTS("2026-06-14")}
 	s.SaveProject(p)
 
 	step := types.Step{ID: "my-step", Title: "My Step", Status: types.StepTodo, ProjectID: pid}
 	s.SaveStep(step)
 
-	b := types.Blocker{ID: "only-b", Title: "Only Blocker", Status: types.BlockerWaiting, ProjectID: pid, StepID: "my-step", CreatedAt: "2026-06-14"}
+	b := types.Blocker{ID: "only-b", Title: "Only Blocker", Status: types.BlockerWaiting, ProjectID: pid, StepID: "my-step", CreatedAt: mustTS("2026-06-14")}
 	s.SaveBlocker(b)
 
 	if err := s.DeleteBlocker(pid, "my-step", "only-b"); err != nil {
@@ -574,11 +576,11 @@ func TestFileStore_DeleteDecision(t *testing.T) {
 	s := NewFileStore(dir)
 
 	pid := "0196f1b0-0000-7000-8000-000000000070"
-	p := types.Project{ID: pid, Number: 70, Title: "Decision Delete", Status: types.StatusActive, CreatedAt: "2026-06-14"}
+	p := types.Project{ID: pid, Number: 70, Title: "Decision Delete", Status: types.StatusActive, CreatedAt: mustTS("2026-06-14")}
 	s.SaveProject(p)
 
-	s.SaveDecision(types.Decision{ID: "keep", Title: "Keep", Date: "2026-06-14", ProjectID: pid})
-	s.SaveDecision(types.Decision{ID: "remove", Title: "Remove", Date: "2026-06-14", ProjectID: pid})
+	s.SaveDecision(types.Decision{ID: "keep", Title: "Keep", Date: mustTS("2026-06-14"), ProjectID: pid})
+	s.SaveDecision(types.Decision{ID: "remove", Title: "Remove", Date: mustTS("2026-06-14"), ProjectID: pid})
 
 	if err := s.DeleteDecision(pid, "remove"); err != nil {
 		t.Fatalf("DeleteDecision() error = %v", err)
@@ -598,14 +600,14 @@ func TestFileStore_GetBlockers(t *testing.T) {
 	s := NewFileStore(dir)
 
 	pid := "0196f1b0-0000-7000-8000-000000000080"
-	p := types.Project{ID: pid, Number: 80, Title: "Get Blockers", Status: types.StatusActive, CreatedAt: "2026-06-14"}
+	p := types.Project{ID: pid, Number: 80, Title: "Get Blockers", Status: types.StatusActive, CreatedAt: mustTS("2026-06-14")}
 	s.SaveProject(p)
 
 	s.SaveStep(types.Step{ID: "s1", Title: "Step 1", Status: types.StepTodo, ProjectID: pid})
 	s.SaveStep(types.Step{ID: "s2", Title: "Step 2", Status: types.StepTodo, ProjectID: pid})
 
-	s.SaveBlocker(types.Blocker{ID: "b1", Title: "Blocker 1", Status: types.BlockerWaiting, ProjectID: pid, StepID: "s1", CreatedAt: "2026-06-14"})
-	s.SaveBlocker(types.Blocker{ID: "b2", Title: "Blocker 2", Status: types.BlockerWaiting, ProjectID: pid, StepID: "s2", CreatedAt: "2026-06-14"})
+	s.SaveBlocker(types.Blocker{ID: "b1", Title: "Blocker 1", Status: types.BlockerWaiting, ProjectID: pid, StepID: "s1", CreatedAt: mustTS("2026-06-14")})
+	s.SaveBlocker(types.Blocker{ID: "b2", Title: "Blocker 2", Status: types.BlockerWaiting, ProjectID: pid, StepID: "s2", CreatedAt: mustTS("2026-06-14")})
 
 	blockers, err := s.GetBlockers(pid)
 	if err != nil {
@@ -634,7 +636,7 @@ func TestFileStore_EmptyStepsDecisions(t *testing.T) {
 	s := NewFileStore(dir)
 
 	pid := "0196f1b0-0000-7000-8000-000000000090"
-	p := types.Project{ID: pid, Number: 90, Title: "Empty", Status: types.StatusActive, CreatedAt: "2026-06-14"}
+	p := types.Project{ID: pid, Number: 90, Title: "Empty", Status: types.StatusActive, CreatedAt: mustTS("2026-06-14")}
 	s.SaveProject(p)
 
 	// No steps or decisions saved — should return nil (no error)

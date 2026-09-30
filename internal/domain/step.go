@@ -47,7 +47,10 @@ func HasUnresolvedBlockers(blockers []types.Blocker) bool {
 }
 
 // StepStatusChange applies a new status to a step after validation, and updates UpdatedAt.
-func StepStatusChange(s *types.Step, newStatus types.StepStatus, now string) {
+//
+// now is a Timestamp, not a string: the caller cannot pass a date-only value by
+// accident, and the resulting UpdatedAt is always the canonical storage form.
+func StepStatusChange(s *types.Step, newStatus types.StepStatus, now types.Timestamp) {
 	s.Status = newStatus
 	s.UpdatedAt = now
 }

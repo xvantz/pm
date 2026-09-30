@@ -59,7 +59,7 @@ func cmdProjectCreate(args []string) error {
 		return fmt.Errorf("next number: %w", err)
 	}
 
-	now := types.NowISO()
+	now := types.NowTimestamp()
 	p := types.Project{
 		ID:        id,
 		Number:    number,
@@ -149,7 +149,7 @@ func cmdProjectShow(args []string) error {
 	}
 	fmt.Printf("Created: %s\n", p.CreatedAt)
 	fmt.Printf("Updated: %s\n", p.UpdatedAt)
-	if p.CompletedAt != "" {
+	if !p.CompletedAt.IsZero() {
 		fmt.Printf("Done:    %s\n", p.CompletedAt)
 	}
 
@@ -223,9 +223,9 @@ func cmdProjectStatus(args []string) error {
 	return updateProject(args[0], func(p *types.Project) {
 		p.Status = status
 		if status == types.StatusCompleted {
-			p.CompletedAt = types.NowISO()
+			p.CompletedAt = types.NowTimestamp()
 		} else {
-			p.CompletedAt = ""
+			p.CompletedAt = types.Timestamp{}
 		}
 	})
 }
@@ -242,7 +242,7 @@ func updateProject(ref string, fn func(p *types.Project)) error {
 	}
 
 	fn(&pd.Project)
-	pd.Project.UpdatedAt = types.NowISO()
+	pd.Project.UpdatedAt = types.NowTimestamp()
 
 	if err := st.SaveProject(pd.Project); err != nil {
 		return fmt.Errorf("save project: %w", err)

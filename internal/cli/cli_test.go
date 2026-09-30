@@ -221,7 +221,7 @@ func TestDoctor_EmptyStore(t *testing.T) {
 		t.Fatalf("openStore() error = %v", err)
 	}
 	uid, _ := uuid.NewV7()
-	now := types.NowISO()
+	now := types.NowTimestamp()
 	p := types.Project{ID: uid.String(), Number: 1, Title: "Test", Status: types.StatusActive, CreatedAt: now, UpdatedAt: now}
 	if err := st.SaveProject(p); err != nil {
 		t.Fatalf("SaveProject() error = %v", err)
@@ -249,7 +249,7 @@ func TestTrash_RestoreClean(t *testing.T) {
 	}
 
 	uid, _ := uuid.NewV7()
-	now := types.NowISO()
+	now := types.NowTimestamp()
 	pid := uid.String()
 	p := types.Project{ID: pid, Number: 1, Title: "Trash Test", Status: types.StatusActive, CreatedAt: now, UpdatedAt: now}
 	if err := st.SaveProject(p); err != nil {
