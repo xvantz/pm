@@ -26,8 +26,9 @@
 - [x] 3.1 README: строка про `blocker_ids` и фильтр `step_id`
   **DoD:** раздел Reading through MCP упоминает оба
   **Результат:** таблица тулов и раздел чтения обновлены.
-- [ ] 3.2 PR + CI + архив последним коммитом
+- [x] 3.2 PR + CI + архив последним коммитом
   **DoD:** Forgejo run success; `openspec list` без `feat-mcp-blocker-refs`
+  **Результат:** PR #28, CI run 765 success, архив ниже в той же ветке.
 
 ## Границы
 
