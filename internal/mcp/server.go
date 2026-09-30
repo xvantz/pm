@@ -84,12 +84,16 @@ func (s *Server) runWithWriter(ctx context.Context, w io.Writer) error {
 }
 
 type jsonrpcMessage struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      *int            `json:"id"`
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *jsonrpcError   `json:"error,omitempty"`
+	JSONRPC string `json:"jsonrpc"`
+	// ID is kept as raw JSON rather than *int: MCP requires the server to
+	// accept "string | number", and a request carrying a string id would
+	// otherwise fail to decode and take the whole session with it. Echoed
+	// back byte-for-byte, because the client matches responses by id.
+	ID     json.RawMessage `json:"id"`
+	Method string          `json:"method,omitempty"`
+	Params json.RawMessage `json:"params,omitempty"`
+	Result json.RawMessage `json:"result,omitempty"`
+	Error  *jsonrpcError   `json:"error,omitempty"`
 }
 
 type jsonrpcError struct {
@@ -129,7 +133,7 @@ func (s *Server) handleMessage(ctx context.Context, msg jsonrpcMessage, w io.Wri
 	}
 }
 
-func (s *Server) handleInitialize(w io.Writer, id *int) {
+func (s *Server) handleInitialize(w io.Writer, id json.RawMessage) {
 	result := map[string]any{
 		"protocolVersion": protocolVersion,
 		"capabilities": map[string]any{
@@ -143,11 +147,11 @@ func (s *Server) handleInitialize(w io.Writer, id *int) {
 	sendResult(w, id, result)
 }
 
-func (s *Server) handleToolsList(w io.Writer, id *int) {
+func (s *Server) handleToolsList(w io.Writer, id json.RawMessage) {
 	sendResult(w, id, map[string]any{"tools": s.tools})
 }
 
-func (s *Server) handleToolCall(ctx context.Context, w io.Writer, id *int, params json.RawMessage) {
+func (s *Server) handleToolCall(ctx context.Context, w io.Writer, id json.RawMessage, params json.RawMessage) {
 	var call struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -176,7 +180,7 @@ func (s *Server) handleToolCall(ctx context.Context, w io.Writer, id *int, param
 	sendError(w, id, -32602, fmt.Sprintf("Unknown tool: %s", call.Name), "")
 }
 
-func sendResult(w io.Writer, id *int, result any) {
+func sendResult(w io.Writer, id json.RawMessage, result any) {
 	resp := jsonrpcMessage{JSONRPC: "2.0", ID: id}
 	respBytes, err := json.Marshal(result)
 	if err != nil {
@@ -187,7 +191,7 @@ func sendResult(w io.Writer, id *int, result any) {
 	writeMessage(w, resp)
 }
 
-func sendError(w io.Writer, id *int, code int, message, data string) {
+func sendError(w io.Writer, id json.RawMessage, code int, message, data string) {
 	resp := jsonrpcMessage{
 		JSONRPC: "2.0", ID: id,
 		Error: &jsonrpcError{Code: code, Message: message, Data: data},

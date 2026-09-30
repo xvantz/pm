@@ -26,14 +26,20 @@ func readMCPResponse(t *testing.T, buf *bytes.Buffer) jsonrpcMessage {
 	return resp
 }
 
-// testMsg builds a jsonrpcMessage for handleMessage unit tests.
-func testMsg(id int, method, params string) jsonrpcMessage {
+// testMsg builds a jsonrpcMessage for handleMessage unit tests. id is passed
+// as raw JSON so a test can send a string id exactly as a client would.
+func testMsg(id string, method, params string) jsonrpcMessage {
 	return jsonrpcMessage{
 		JSONRPC: "2.0",
-		ID:      &id,
+		ID:      json.RawMessage(id),
 		Method:  method,
 		Params:  json.RawMessage(params),
 	}
+}
+
+// testMsgInt is the common integer-id case.
+func testMsgInt(id int, method, params string) jsonrpcMessage {
+	return testMsg(fmt.Sprintf("%d", id), method, params)
 }
 
 // --- Server protocol tests ---
@@ -45,13 +51,13 @@ func TestServer_Initialize(t *testing.T) {
 	state := stateNew
 
 	s.handleMessage(context.Background(),
-		testMsg(1, "initialize", `{}`),
+		testMsgInt(1, "initialize", `{}`),
 		&buf, &state,
 	)
 
 	resp := readMCPResponse(t, &buf)
-	if resp.ID == nil || *resp.ID != 1 {
-		t.Errorf("id = %v, want 1", resp.ID)
+	if string(resp.ID) != "1" {
+		t.Errorf("id = %s, want 1", resp.ID)
 	}
 	if resp.Error != nil {
 		t.Errorf("unexpected error: %v", resp.Error)
@@ -77,7 +83,7 @@ func TestServer_ToolsList(t *testing.T) {
 	state := stateInitialized // already initialized
 
 	s.handleMessage(context.Background(),
-		testMsg(2, "tools/list", `{}`),
+		testMsgInt(2, "tools/list", `{}`),
 		&buf, &state,
 	)
 
@@ -120,7 +126,7 @@ func TestServer_ToolsCall(t *testing.T) {
 	state := stateInitialized
 
 	s.handleMessage(context.Background(),
-		testMsg(3, "tools/call", `{"name":"hello","arguments":{"name":"World"}}`),
+		testMsgInt(3, "tools/call", `{"name":"hello","arguments":{"name":"World"}}`),
 		&buf, &state,
 	)
 
@@ -154,7 +160,7 @@ func TestServer_NotInitialized(t *testing.T) {
 
 	// Should reject tools/list before initialized
 	s.handleMessage(context.Background(),
-		testMsg(1, "tools/list", `{}`),
+		testMsgInt(1, "tools/list", `{}`),
 		&buf, &state,
 	)
 
@@ -174,7 +180,7 @@ func TestServer_UnknownTool(t *testing.T) {
 	state := stateInitialized
 
 	s.handleMessage(context.Background(),
-		testMsg(1, "tools/call", `{"name":"nonexistent","arguments":{}}`),
+		testMsgInt(1, "tools/call", `{"name":"nonexistent","arguments":{}}`),
 		&buf, &state,
 	)
 
@@ -693,7 +699,7 @@ func TestToolsList_AllSchemasAreObjects(t *testing.T) {
 	var buf bytes.Buffer
 	state := stateInitialized
 	s.handleMessage(context.Background(),
-		testMsg(99, "tools/list", `{}`),
+		testMsgInt(99, "tools/list", `{}`),
 		&buf, &state,
 	)
 
