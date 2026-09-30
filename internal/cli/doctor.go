@@ -35,7 +35,22 @@ func cmdDoctor(args []string) error {
 	known := map[string]bool{".trash": true, "_meta": true}
 	var totalProjects, totalSteps, totalDecisions, totalBlockers int
 	var errCount int
+	var legacyCount, brokenCount int
 	var orphans []string
+
+	// countStamps classifies the timestamp fields of one entity: legacy
+	// (date-only, readable, will be rewritten on next write) and broken
+	// (unreadable, excluded from counts and reported by the briefing).
+	countStamps := func(stamps ...types.Timestamp) {
+		for _, ts := range stamps {
+			switch _, invalid := ts.Invalid(); {
+			case invalid:
+				brokenCount++
+			case ts.IsLegacy():
+				legacyCount++
+			}
+		}
+	}
 
 	for _, e := range entries {
 		if !e.IsDir() || known[e.Name()] {
@@ -65,6 +80,7 @@ func cmdDoctor(args []string) error {
 
 		fmt.Printf("  ✅ #%d %s (%s)\n", p.Number, p.Title, p.ID)
 		totalProjects++
+		countStamps(p.CreatedAt, p.UpdatedAt, p.CompletedAt)
 
 		// Check steps
 		stepsDir := filepath.Join(projDir, "steps")
@@ -88,6 +104,10 @@ func cmdDoctor(args []string) error {
 					fmt.Printf("     ⚠ step %s: YAML parse error: %v\n", se.Name(), err)
 					errCount++
 					continue
+				}
+				countStamps(step.CreatedAt, step.UpdatedAt)
+				for _, bl := range step.Blockers {
+					countStamps(bl.CreatedAt, bl.UpdatedAt)
 				}
 				if step.ProjectID != p.ID {
 					fmt.Printf("     ⚠ step %s: project_id mismatch (%s != %s)\n", se.Name(), step.ProjectID, p.ID)
@@ -121,6 +141,7 @@ func cmdDoctor(args []string) error {
 					errCount++
 					continue
 				}
+				countStamps(dec.Date)
 				if dec.ProjectID != p.ID {
 					fmt.Printf("     ⚠ decision %s: project_id mismatch (%s != %s)\n", de.Name(), dec.ProjectID, p.ID)
 					errCount++
@@ -130,6 +151,21 @@ func cmdDoctor(args []string) error {
 		totalDecisions += decCount
 
 		fmt.Printf("     Шагов: %d, Блокеров: %d, Решений: %d\n", stepCount, stepBlockers, decCount)
+	}
+
+	// Legacy timestamps: readable, but date-only, so they carry no intraday
+	// information. They are rewritten in canonical form the next time the
+	// record is written, so this is a progress counter, not a repair list —
+	// hence no auto-fix here (writing outside the daemon would reintroduce the
+	// races the daemon removed).
+	fmt.Println()
+	fmt.Printf("Метки времени: %d устаревших (только дата), %d битых\n",
+		legacyCount, brokenCount)
+	if legacyCount > 0 {
+		fmt.Println("  Устаревшие метки перепишутся в RFC3339 при следующем изменении записи.")
+	}
+	if brokenCount > 0 {
+		fmt.Println("  ⚠ Битые метки не читаются: брифинг исключает их из подсчётов и пишет warning.")
 	}
 
 	// Summary

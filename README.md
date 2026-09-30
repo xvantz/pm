@@ -201,8 +201,8 @@ title: "Set up Caddy"
 status: done            # todo | in_progress | review | done | blocked
 project_id: "0196f1a2-..."
 blockers: []
-created_at: "2026-06-13"
-updated_at: "2026-06-13"
+created_at: "2026-06-13T09:12:44Z"
+updated_at: "2026-06-13T17:40:02Z"
 ```
 
 ```yaml
@@ -214,8 +214,8 @@ blockers:
     status: waiting      # waiting | active | resolved
     project_id: "..."
     step_id: "configure-dns"
-    created_at: "2026-06-10"
-    updated_at: "2026-06-10"
+    created_at: "2026-06-10T08:00:00Z"
+    updated_at: "2026-06-10T08:00:00Z"
 ```
 
 ```yaml
@@ -223,9 +223,50 @@ blockers:
 id: use-go
 title: "Go as language"
 reason: "One binary, no dependencies"
-date: "2026-06-13"
+date: "2026-06-13T11:05:19Z"
 project_id: "..."
 ```
+
+## Timestamps
+
+Event times (`created_at`, `updated_at`, `completed_at`, decision `date`) are
+RFC3339 in UTC, second precision:
+
+```yaml
+updated_at: "2026-09-29T19:57:55Z"
+```
+
+The legacy date-only form is still **read** as start-of-day UTC, so old stores
+keep working:
+
+```yaml
+updated_at: "2026-09-27"        # read as 2026-09-27T00:00:00Z
+```
+
+Each record is rewritten in the canonical form the next time it is written, so
+a store migrates itself as it is touched. `pm doctor` reports how far along it
+is:
+
+```
+Метки времени: 12 устаревших (только дата), 0 битых
+```
+
+Legacy is not an error — the value is read correctly, it just carries no time
+of day, so two events on the same day cannot be ordered. `doctor` does not
+rewrite them: writing outside the daemon would reintroduce the races the daemon
+exists to prevent.
+
+A timestamp that cannot be parsed at all is kept verbatim, logged as a warning,
+and reported in `data_warnings` in the briefing response — the counts are
+partial, and the caller can see that they are. It never fails the whole file,
+and it is never silently replaced with a zero time.
+
+### Days and time zones
+
+The briefing buckets events by calendar day in the **daemon's** time zone, not
+UTC. A step closed at 01:00 MSK belongs to today, not to the previous UTC day.
+Because both `pm briefing` and `get_briefing` are computed by the daemon, they
+always agree on what "today" means.
 
 ## Reliability
 

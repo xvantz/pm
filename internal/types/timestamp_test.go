@@ -239,6 +239,55 @@ func TestTimestamp_ZeroDayKeyIsEmpty(t *testing.T) {
 	}
 }
 
+func TestTimestamp_LegacyFlagTracksPrecisionLoss(t *testing.T) {
+	t.Parallel()
+	// doctor counts these: the value is valid, it just lost the time of day.
+	legacy, err := ParseTimestamp("2026-09-27")
+	if err != nil {
+		t.Fatalf("legacy parse error = %v", err)
+	}
+	if !legacy.IsLegacy() {
+		t.Error("a date-only stamp must report IsLegacy")
+	}
+	if legacy.IsZero() {
+		t.Error("a legacy stamp is a real instant (start-of-day UTC), not absent")
+	}
+	if got, want := legacy.String(), "2026-09-27T00:00:00Z"; got != want {
+		t.Errorf("legacy instant = %q, want %q", got, want)
+	}
+	canonical, _ := ParseTimestamp("2026-09-27T00:00:00Z")
+	if canonical.IsLegacy() {
+		t.Error("an RFC3339 stamp must not report IsLegacy, even at midnight")
+	}
+	if NewTimestamp(legacy.Time).IsLegacy() {
+		t.Error("an explicitly constructed time is not legacy")
+	}
+	if NowTimestamp().IsLegacy() {
+		t.Error("NowTimestamp is always canonical")
+	}
+	// And a legacy stamp survives a rewrite in canonical form.
+	out, err := legacy.MarshalYAML()
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if out != "2026-09-27T00:00:00Z" {
+		t.Errorf("legacy rewritten as %v, want canonical form", out)
+	}
+}
+
+func TestTimestamp_LegacyFlagSurvivesYAMLRead(t *testing.T) {
+	t.Parallel()
+	var doc struct {
+		UpdatedAt Timestamp `yaml:"updated_at"`
+	}
+	if err := yaml.Unmarshal([]byte("updated_at: \"2026-09-27\"\n"), &doc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if !doc.UpdatedAt.IsLegacy() {
+		t.Error("a quoted legacy date read from YAML must report IsLegacy")
+	}
+}
+
 func TestNowTimestamp_IsCanonicalUTC(t *testing.T) {
 	t.Parallel()
 	now := NowTimestamp()

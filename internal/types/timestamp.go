@@ -27,7 +27,18 @@ type Timestamp struct {
 	// raw holds the original text when it could not be parsed. Empty means
 	// "parsed fine or genuinely absent" — either way, not a problem.
 	raw string
+
+	// legacy marks a value that parsed, but only via the date-only form. It
+	// is still valid and still orders correctly, yet it carries no
+	// intraday information: two such stamps on the same day are
+	// indistinguishable. `doctor` counts these so the migration is
+	// observable, and the next write rewrites them in canonical form.
+	legacy bool
 }
+
+// IsLegacy reports that the value came in as a date-only stamp. It is not an
+// error: the value is usable, it is just less precise than the storage format.
+func (t Timestamp) IsLegacy() bool { return t.legacy }
 
 // Layouts accepted when reading. Writes always use writeLayout.
 const (
@@ -51,7 +62,7 @@ func ParseTimestamp(s string) (Timestamp, error) {
 		return Timestamp{Time: t.UTC()}, nil
 	}
 	if t, err := time.Parse(legacyDateLayout, s); err == nil {
-		return Timestamp{Time: t.UTC()}, nil
+		return Timestamp{Time: t.UTC(), legacy: true}, nil
 	}
 	// Tolerate RFC3339 with an offset or fractional seconds on read: some
 	// values may be hand-edited or produced by other tooling. Normalised to

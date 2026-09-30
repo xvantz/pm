@@ -15,10 +15,15 @@ fractional part (`2026-09-29T19:57:55Z`). Offsets MUST NOT be written.
 Readers MUST accept the legacy `YYYY-MM-DD` form and MUST interpret it as
 start-of-day UTC.
 
-`NowISO` SHALL return the RFC3339 UTC form.
+`types.NowTimestamp` SHALL return the canonical form. There SHALL be no
+string-returning variant of the current-time helper: it would be an escape
+hatch back to comparing event times as text.
 
-Legacy data is migrated by a separate, revertible pass; `doctor` SHALL report
-the count of remaining legacy records and SHALL NOT rewrite them, because
+Legacy data migrates on write: a record read in the legacy form is rewritten in
+canonical form the next time it is touched, so a store converts itself as it is
+used. No separate migration pass exists — it would do exactly what an ordinary
+write does, only outside the daemon. `doctor` SHALL report the count of
+remaining legacy and unreadable records and SHALL NOT rewrite them, because
 bypassing the daemon to write reintroduces the races the daemon removed.
 
 #### Scenario: New write carries a timestamp
@@ -46,6 +51,11 @@ bypassing the daemon to write reintroduces the races the daemon removed.
 
 - **WHEN** `doctor` runs against a store holding `updated_at: "2026-09-27"`
 - **THEN** it reports the legacy record count and does not modify the files
+
+#### Scenario: Legacy record rewrites itself on the next write
+
+- **WHEN** a project read from a legacy `updated_at: "2026-09-27"` is saved again
+- **THEN** the stored value is `2026-09-27T00:00:00Z` and no other field changes
 
 ### Requirement: Calendar-day bucketing
 
