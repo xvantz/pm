@@ -111,7 +111,8 @@ pm-mcp is a JSON-RPC 2.0 server over stdio with NDJSON framing. 13 tools:
 | Tool | Description |
 |-----------|----------|
 | `list_projects` | list projects (JSON) |
-| `get_project` | project + steps + decisions (JSON) |
+| `get_project` | project summary: counts, open blockers, last step (`detail:true` for everything) |
+| `get_step` | one step in full, with its blockers and artifacts |
 | `add_project` | create a project |
 | `add_step` | add a step |
 | `start_step` | todo → in_progress |
@@ -123,7 +124,7 @@ pm-mcp is a JSON-RPC 2.0 server over stdio with NDJSON framing. 13 tools:
 | `close_project` | bulk-close: requires consent (see below) |
 | `delete_project` | move to trash (prefer close for finished work) |
 | `get_briefing` | generate a digest |
-| `list_steps` | project steps (JSON) |
+| `list_steps` | project steps, briefly (id/title/status/updated_at) |
 | `list_blockers` | blockers (JSON) |
 | `list_decisions` | decisions (JSON) |
 
@@ -306,7 +307,27 @@ and reported in `data_warnings` in the briefing response — the counts are
 partial, and the caller can see that they are. It never fails the whole file,
 and it is never silently replaced with a zero time.
 
+## Reading through MCP
+
+Reads come in three sizes, so asking one question does not pull a whole project
+into your context.
+
+| Question | Tool | Cost |
+|---|---|---|
+| "Where does this stand?" | `get_project` | summary: counts by status, open blockers, last completed step, plus a hint naming the next call |
+| "Which steps are there?" | `list_steps` | id, title, status, updated_at per step |
+| "What is on this one step?" | `get_step` | that step in full, with blockers and artifacts |
+
+`get_project` used to return everything, and a detailed read of one project
+cost more than listing every project — 2 195 B against 1 755 B, which inverts
+the expected ratio. It is now roughly 5× smaller. Pass `detail: true` for the
+old full dump when you genuinely need every step and decision.
+
+The summary counts every step (`steps_by_status` sums to `steps_total`), so
+nothing is hidden — it is just not spelled out until you ask.
+
 ### Days and time zones
+
 The briefing buckets events by calendar day in the **daemon's** time zone, not
 UTC. A step closed at 01:00 MSK belongs to today, not to the previous UTC day.
 Because both `pm briefing` and `get_briefing` are computed by the daemon, they
