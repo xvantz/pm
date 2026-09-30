@@ -197,16 +197,22 @@ func (s *MockStore) DeleteProject(id string) error {
 	return nil
 }
 
-func (s *MockStore) CloseProject(ref, reason string) error {
+func (s *MockStore) CloseProject(ref, reason string, confirm bool) (*types.ClosePlan, error) {
 	pd, err := s.ResolveProject(ref)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if pd.Project.Status == types.StatusCompleted {
-		return fmt.Errorf("project #%d already completed", pd.Project.Number)
+		return nil, fmt.Errorf("project #%d already completed", pd.Project.Number)
+	}
+	// Same builder and same gate as FileStore, or tests would approve of a
+	// close the daemon would have refused.
+	plan := buildClosePlan(*pd)
+	if !confirm {
+		return plan, nil
 	}
 	if strings.TrimSpace(reason) == "" {
-		reason = "bulk close"
+		return nil, fmt.Errorf("reason is required to confirm a close: it is recorded as the project decision")
 	}
 	now := types.NowTimestamp()
 	for i := range pd.Steps {
@@ -223,7 +229,17 @@ func (s *MockStore) CloseProject(ref, reason string) error {
 		ID: "closed", Title: "Closed: " + reason, Reason: reason,
 		Date: now, ProjectID: pd.Project.ID,
 	})
-	return nil
+	return plan, nil
+}
+
+func (s *MockStore) ClosePlan(ref string) (*types.ClosePlan, error) {
+	pd, err := s.ResolveProject(ref)
+	if err != nil {
+		return nil, err
+	}
+	// Same builder as FileStore: a preview that differs between backends would
+	// make the confirmation screen lie in tests and pass in production.
+	return buildClosePlan(*pd), nil
 }
 
 func (m *MockStore) TrashList() ([]string, error) { return nil, nil }

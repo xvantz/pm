@@ -16,7 +16,7 @@
 - Affected code: `internal/mcp/server.go`, `internal/mcp/tools.go`, `internal/briefing`.
 
 **Пересечение файлов:** `internal/mcp/tools.go` делится с
-`feat-mcp-trash-restore` (новые тулы) и `feat-step-lifecycle-force` (схема
-`done_step`). По правилу 3 AGENTS.md мерджится первым среди трёх — он трогает
+`feat-mcp-trash-restore` (новые тулы) и `feat-close-consent` (схема
+`close_project`). По правилу 3 AGENTS.md мерджится первым среди трёх — он трогает
 и каталог тулов, и брифинг, то есть пересекается с обоими. Остальные ждут его
 или идут в `git worktree`.

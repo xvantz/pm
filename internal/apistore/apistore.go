@@ -177,9 +177,24 @@ func (s *Store) DeleteProject(id string) error {
 	return err
 }
 
-func (s *Store) CloseProject(ref, reason string) error {
-	_, err := s.c.CloseProject(ref, reason)
-	return err
+// CloseProject forwards the consent flag to the daemon unchanged. The gate
+// itself lives in the store and the daemon, so an adapter cannot skip it.
+//
+// The HTTP call answers with either a plan or a closed project depending on
+// confirm; here both collapse into (plan, error) because that is what the
+// store contract promises. The caller learns the outcome from the store's
+// state, not from this return value.
+func (s *Store) CloseProject(ref, reason string, confirm bool) (*types.ClosePlan, error) {
+	_, plan, err := s.c.CloseProject(ref, reason, confirm)
+	if err != nil {
+		return nil, err
+	}
+	return plan, nil
+}
+
+// ClosePlan previews a close over the daemon without touching anything.
+func (s *Store) ClosePlan(ref string) (*types.ClosePlan, error) {
+	return s.c.ClosePlan(ref)
 }
 
 func (s *Store) TrashList() ([]string, error) {

@@ -267,21 +267,79 @@ func (s *FileStore) SaveDecision(d types.Decision) error {
 	return writeYAMLAtomic(filepath.Join(dir, d.ID+".yaml"), d)
 }
 
+// ClosePlan previews CloseProject without mutating anything.
+//
+// Read-only by contract: it resolves and reads, never saves. That is the whole
+// point — a caller must be able to show a human what an irreversible bulk close
+// would do, so this cannot be the thing that changes the project.
+func (s *FileStore) ClosePlan(ref string) (*types.ClosePlan, error) {
+	pd, err := s.ResolveProject(ref)
+	if err != nil {
+		return nil, err
+	}
+	return buildClosePlan(*pd), nil
+}
+
+// buildClosePlan assembles the preview from already-loaded project data.
+// Shared by FileStore and MockStore so both describe a close identically.
+func buildClosePlan(pd types.ProjectData) *types.ClosePlan {
+	plan := &types.ClosePlan{
+		ProjectID:    pd.Project.ID,
+		ProjectTitle: pd.Project.Title,
+		Steps:        []types.ClosePlanStep{},
+		Blockers:     []types.ClosePlanBlocker{},
+	}
+	for _, st := range pd.Steps {
+		if st.Status == types.StepDone {
+			continue // already closed, nothing to do
+		}
+		plan.Steps = append(plan.Steps, types.ClosePlanStep{
+			ID:     st.ID,
+			Title:  st.Title,
+			Status: st.Status,
+		})
+		for _, b := range st.Blockers {
+			if b.Status == types.BlockerResolved {
+				continue
+			}
+			plan.Blockers = append(plan.Blockers, types.ClosePlanBlocker{
+				ID:       b.ID,
+				Title:    b.Title,
+				Reason:   b.Reason,
+				StepID:   st.ID,
+				StepName: st.Title,
+			})
+		}
+	}
+	return plan
+}
+
 // CloseProject force-completes open steps, marks the project completed
 // and records the reason. One call instead of N lifecycle transitions.
 // Each op locks individually (no nested locks); the daemon serializes
 // concurrent closes with its own mutex.
-func (s *FileStore) CloseProject(ref, reason string) error {
+//
+// confirm gates the irreversible half: false returns the plan and changes
+// nothing. The gate lives here, in the store, not only in the MCP tool — every
+// caller reaches this through an adapter, and a gate the adapter can skip is
+// not a gate.
+func (s *FileStore) CloseProject(ref, reason string, confirm bool) (*types.ClosePlan, error) {
 	pd, err := s.ResolveProject(ref)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if pd.Project.Status == types.StatusCompleted {
-		return fmt.Errorf("project #%d already completed", pd.Project.Number)
+		return nil, fmt.Errorf("project #%d already completed", pd.Project.Number)
+	}
+
+	plan := buildClosePlan(*pd)
+	if !confirm {
+		return plan, nil
 	}
 	if strings.TrimSpace(reason) == "" {
-		reason = "bulk close"
+		return nil, fmt.Errorf("reason is required to confirm a close: it is recorded as the project decision")
 	}
+
 	now := types.NowTimestamp()
 	closed := 0
 	for _, st := range pd.Steps {
@@ -291,7 +349,7 @@ func (s *FileStore) CloseProject(ref, reason string) error {
 		st.Status = types.StepDone
 		st.UpdatedAt = now
 		if err := s.SaveStep(st); err != nil {
-			return fmt.Errorf("close step %q: %w", st.ID, err)
+			return nil, fmt.Errorf("close step %q: %w", st.ID, err)
 		}
 		closed++
 	}
@@ -299,12 +357,15 @@ func (s *FileStore) CloseProject(ref, reason string) error {
 	pd.Project.CompletedAt = now
 	pd.Project.UpdatedAt = now
 	if err := s.SaveProject(pd.Project); err != nil {
-		return fmt.Errorf("complete project: %w", err)
+		return nil, fmt.Errorf("complete project: %w", err)
 	}
-	return s.SaveDecision(types.Decision{
+	if err := s.SaveDecision(types.Decision{
 		ID: "closed", Title: "Closed: " + reason, Reason: reason,
 		Date: now, ProjectID: pd.Project.ID,
-	})
+	}); err != nil {
+		return nil, err
+	}
+	return plan, nil
 }
 
 func (s *FileStore) DeleteProject(id string) error {
