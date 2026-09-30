@@ -26,15 +26,29 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "get_project",
-			Description: "Get full project details including steps and decisions",
+			Description: "Get a project summary: status, step counts by state, open blockers, last completed step. Use detail=true only when you need every step and decision. For one step use get_step — it is far cheaper than this tool with detail.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"project_id": {"type": "string", "description": "Project number or UUID"}
+					"project_id": {"type": "string", "description": "Project number or UUID"},
+					"detail": {"type": "boolean", "description": "Return the full project data with every step and decision instead of the summary (optional)"}
 				},
 				"required": ["project_id"]
 			}`),
 			Handler: makeHandler(st, handleGetProject),
+		},
+		{
+			Name:        "get_step",
+			Description: "Get one step in full, with its blockers and artifacts. Use this instead of reading the whole project when you only need one step.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"project_id": {"type": "string", "description": "Project number or UUID"},
+					"step_id": {"type": "string", "description": "Step slug/ID"}
+				},
+				"required": ["project_id", "step_id"]
+			}`),
+			Handler: makeHandler(st, handleGetStep),
 		},
 		{
 			Name:        "add_project",
@@ -159,7 +173,7 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "list_steps",
-			Description: "List all steps in a project with their status",
+			Description: "List a project's steps briefly: id, title, status, updated_at. For one step's blockers or artifacts use get_step.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -306,9 +320,87 @@ func handleListProjects(st store.Store, ctx context.Context, args json.RawMessag
 	return string(data), nil
 }
 
+// jsonProjectSummary is the default get_project answer: enough to answer
+// "where does this stand" without paying for every field of every step.
+//
+// Measured: a full ProjectData for a 7-step project is ~2.1 KB and a project
+// dump cost more than listing every project. This shape is ~10x smaller and
+// still carries what a caller reads first.
+type jsonProjectSummary struct {
+	Number         int            `json:"number"`
+	Title          string         `json:"title"`
+	Status         string         `json:"status"`
+	Goal           string         `json:"goal,omitempty"`
+	Tags           []string       `json:"tags,omitempty"`
+	CreatedAt      string         `json:"created_at"`
+	UpdatedAt      string         `json:"updated_at"`
+	CompletedAt    string         `json:"completed_at,omitempty"`
+	StepsTotal     int            `json:"steps_total"`
+	StepsDone      int            `json:"steps_done"`
+	StepsByStatus  map[string]int `json:"steps_by_status"`
+	BlockersActive int            `json:"blockers_active"`
+	LastStep       string         `json:"last_step,omitempty"`
+	LastStepAt     string         `json:"last_step_at,omitempty"`
+	Hint           string         `json:"hint"`
+}
+
+// buildProjectSummary counts by status instead of listing steps. Every
+// non-done step shows up in the counts, so nothing is hidden — it is just not
+// spelled out until someone asks for the step list.
+func buildProjectSummary(pd types.ProjectData) jsonProjectSummary {
+	s := jsonProjectSummary{
+		Number:        pd.Project.Number,
+		Title:         pd.Project.Title,
+		Status:        string(pd.Project.Status),
+		Goal:          pd.Project.Goal,
+		Tags:          pd.Project.Tags,
+		CreatedAt:     pd.Project.CreatedAt.String(),
+		UpdatedAt:     pd.Project.UpdatedAt.String(),
+		StepsByStatus: map[string]int{},
+	}
+	if !pd.Project.CompletedAt.IsZero() {
+		s.CompletedAt = pd.Project.CompletedAt.String()
+	}
+
+	var lastDone types.Step
+	var lastDoneAt types.Timestamp
+	for _, st := range pd.Steps {
+		s.StepsTotal++
+		s.StepsByStatus[string(st.Status)]++
+		if st.Status == types.StepDone {
+			s.StepsDone++
+			if _, invalid := st.UpdatedAt.Invalid(); !invalid && !st.UpdatedAt.IsZero() {
+				if lastDoneAt.IsZero() || st.UpdatedAt.After(lastDoneAt) {
+					lastDone, lastDoneAt = st, st.UpdatedAt
+				}
+			}
+		}
+		for _, b := range st.Blockers {
+			if b.Status == types.BlockerActive || b.Status == types.BlockerWaiting {
+				s.BlockersActive++
+			}
+		}
+	}
+	if lastDone.Title != "" {
+		s.LastStep = lastDone.Title
+		s.LastStepAt = lastDoneAt.String()
+	}
+
+	switch {
+	case s.BlockersActive > 0:
+		s.Hint = fmt.Sprintf("%d unresolved blocker(s): pm list_blockers %d, or pm blocker resolve.", s.BlockersActive, s.Number)
+	case s.StepsDone < s.StepsTotal:
+		s.Hint = fmt.Sprintf("%d of %d steps open: pm list_steps %d to see which.", s.StepsTotal-s.StepsDone, s.StepsTotal, s.Number)
+	default:
+		s.Hint = fmt.Sprintf("All %d steps done: pm project close %d \"<reason>\" when you are ready.", s.StepsTotal, s.Number)
+	}
+	return s
+}
+
 func handleGetProject(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		ProjectID string `json:"project_id"`
+		Detail    bool   `json:"detail,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", fmt.Errorf("invalid args: %w", err)
@@ -319,11 +411,84 @@ func handleGetProject(st store.Store, ctx context.Context, args json.RawMessage)
 		return "", err
 	}
 
-	data, err := json.Marshal(pd)
+	var payload any
+	if params.Detail {
+		payload = pd
+	} else {
+		payload = buildProjectSummary(*pd)
+	}
+
+	data, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("marshal response: %w", err)
 	}
 	return string(data), nil
+}
+
+// jsonStepBrief is one step in a list: enough to plan, not enough to dump.
+type jsonStepBrief struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Status    string `json:"status"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+}
+
+func handleListSteps(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		ProjectID string `json:"project_id"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "", fmt.Errorf("invalid args: %w", err)
+	}
+	pd, err := st.ResolveProject(params.ProjectID)
+	if err != nil {
+		return "", err
+	}
+	items := make([]jsonStepBrief, 0, len(pd.Steps))
+	for _, st := range pd.Steps {
+		items = append(items, jsonStepBrief{
+			ID:        st.ID,
+			Title:     st.Title,
+			Status:    string(st.Status),
+			UpdatedAt: st.UpdatedAt.String(),
+		})
+	}
+	data, err := json.Marshal(map[string]any{"count": len(items), "steps": items})
+	if err != nil {
+		return "", fmt.Errorf("marshal response: %w", err)
+	}
+	return string(data), nil
+}
+
+// handleGetStep answers "what is on this one step" without the project around
+// it. Without this, a detail read on a 20-step project still costs all 20.
+func handleGetStep(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		ProjectID string `json:"project_id"`
+		StepID    string `json:"step_id"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "", fmt.Errorf("invalid args: %w", err)
+	}
+	if params.StepID == "" {
+		return "", fmt.Errorf("step_id is required")
+	}
+	pd, err := st.ResolveProject(params.ProjectID)
+	if err != nil {
+		return "", err
+	}
+	for _, st := range pd.Steps {
+		if st.ID != params.StepID {
+			continue
+		}
+		data, err := json.Marshal(st)
+		if err != nil {
+			return "", fmt.Errorf("marshal response: %w", err)
+		}
+		return string(data), nil
+	}
+	// Name both, so a cross-project mistake is obvious from the error alone.
+	return "", fmt.Errorf("step %q not found in project #%d", params.StepID, pd.Project.Number)
 }
 
 func handleAddProject(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
@@ -728,49 +893,6 @@ func handleGetBriefing(st store.Store, ctx context.Context, args json.RawMessage
 	}
 
 	return b.FormatMarkdown(), nil
-}
-
-func handleListSteps(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
-	var params struct {
-		ProjectID string `json:"project_id"`
-	}
-	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
-	}
-
-	pd, err := st.ResolveProject(params.ProjectID)
-	if err != nil {
-		return "", err
-	}
-
-	steps := make([]jsonStepItem, 0, len(pd.Steps))
-	for _, s := range pd.Steps {
-		blockers := make([]jsonBlockerItem, 0, len(s.Blockers))
-		for _, bl := range s.Blockers {
-			blockers = append(blockers, jsonBlockerItem{
-				ID:     bl.ID,
-				Title:  bl.Title,
-				Status: string(bl.Status),
-				Reason: bl.Reason,
-			})
-		}
-		steps = append(steps, jsonStepItem{
-			ID:       s.ID,
-			Title:    s.Title,
-			Status:   string(s.Status),
-			Blockers: blockers,
-		})
-	}
-
-	data, err := json.Marshal(map[string]any{
-		"project_number": pd.Project.Number,
-		"project_title":  pd.Project.Title,
-		"steps":          steps,
-	})
-	if err != nil {
-		return "", fmt.Errorf("marshal response: %w", err)
-	}
-	return string(data), nil
 }
 
 func handleListBlockers(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {

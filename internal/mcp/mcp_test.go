@@ -214,11 +214,35 @@ func TestHandleGetProject(t *testing.T) {
 	if !strings.Contains(result, "\"title\":\"AdGuard Home\"") {
 		t.Errorf("result missing 'AdGuard Home': %s", result)
 	}
-	if !strings.Contains(result, "\"id\":\"configure-dns\"") {
-		t.Errorf("result missing step 'configure-dns': %s", result)
+	// The default answer is a summary: counts, not the step list. Steps and
+	// blockers are asked for separately — carrying them here is what made the
+	// detail read cost more than listing every project.
+	if !strings.Contains(result, "\"steps_total\":5") {
+		t.Errorf("summary missing the step total: %s", result)
 	}
-	if !strings.Contains(result, "\"id\":\"router\"") {
-		t.Errorf("result missing blocker 'router': %s", result)
+	if !strings.Contains(result, "\"steps_by_status\"") {
+		t.Errorf("summary missing the per-status breakdown: %s", result)
+	}
+	if !strings.Contains(result, "\"blockers_active\":1") {
+		t.Errorf("summary missing the open blocker count: %s", result)
+	}
+	if strings.Contains(result, "\"id\":\"configure-dns\"") {
+		t.Errorf("the default summary must not carry step objects: %s", result)
+	}
+	if strings.Contains(result, "\"id\":\"router\"") {
+		t.Errorf("the default summary must not carry blocker objects: %s", result)
+	}
+
+	// detail:true restores the full dump.
+	full, err := handleGetProject(st, context.Background(), json.RawMessage(`{"project_id":"1","detail":true}`))
+	if err != nil {
+		t.Fatalf("detail read error: %v", err)
+	}
+	if !strings.Contains(full, "\"id\":\"configure-dns\"") {
+		t.Errorf("detail read missing step 'configure-dns': %s", full)
+	}
+	if !strings.Contains(full, "\"id\":\"router\"") {
+		t.Errorf("detail read missing blocker 'router': %s", full)
 	}
 
 	// Not found
@@ -482,11 +506,19 @@ func TestHandleListSteps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("handleListSteps error: %v", err)
 	}
-	if !strings.Contains(result, "\"project_number\":1") {
-		t.Errorf("result missing header: %s", result)
+	if !strings.Contains(result, "\"count\":5") {
+		t.Errorf("result missing the step count: %s", result)
 	}
 	if !strings.Contains(result, "\"id\":\"configure-dns\"") {
 		t.Errorf("result missing step: %s", result)
+	}
+	// The brief listing must not carry blockers: that is what get_step is for,
+	// and it is what made this list heavier than a summary.
+	if strings.Contains(result, "blockers") {
+		t.Errorf("list_steps must not carry blockers: %s", result)
+	}
+	if strings.Contains(result, "artifacts") {
+		t.Errorf("list_steps must not carry artifacts: %s", result)
 	}
 
 	// Non-existent project
@@ -575,7 +607,7 @@ func TestRegisterPMTools(t *testing.T) {
 	RegisterPMTools(s, st)
 
 	expected := []string{
-		"list_projects", "get_project", "add_project", "add_step",
+		"list_projects", "get_project", "get_step", "add_project", "add_step",
 		"start_step", "review_step", "done_step",
 		"add_blocker", "resolve_blocker", "add_decision",
 		"get_briefing",
