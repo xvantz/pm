@@ -15,8 +15,8 @@
 - Зависит от `fix-mcp-list-projects-schema` (новые тулы сразу с корректными схемами).
 
 **Пересечение файлов:** `internal/mcp/tools.go` делится с
-`feat-mcp-paging-briefing` и `feat-step-lifecycle-force`. По правилу 3 AGENTS.md
-этот ченж мерджится **после** `feat-mcp-paging-briefing` (тот переписывает
-каталог тулов и брифинг, конфликт по требованиям возможен) и независимо от
-`feat-step-lifecycle-force` (тот правит схему `done_step`, этот добавляет новые
-тулы — пересечение в файле, но не в требованиях).
+`feat-mcp-paging-briefing` и `feat-close-consent` (схема `close_project`). По
+правилу 3 AGENTS.md этот ченж мерджится **после** `feat-mcp-paging-briefing`
+(тот переписывает каталог тулов и брифинг, конфликт по требованиям возможен)
+и независимо от `feat-close-consent` (тот правит схему `close_project`, этот
+добавляет новые тулы — пересечение в файле, но не в требованиях).
