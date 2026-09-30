@@ -13,3 +13,9 @@
 - Affected specs: `cli-lifecycle` (ADDED: force completion), `mcp-server` (затронут `done_step`, без новой спеки - поведение описано здесь).
 - Affected code: `internal/mcp/tools.go` (схема `done_step` + хендлер), `internal/cli/step.go`, `internal/domain/step.go`.
 - Обратная совместимость полная: без флага все как было.
+
+**Пересечение файлов:** `internal/mcp/tools.go` делится с
+`feat-mcp-paging-briefing` и `feat-mcp-trash-restore`; `internal/domain/step.go`
+не делится ни с кем. Правит только схему `done_step`, поэтому требования
+не конфликтуют ни с одним соседом — приоритет мерджа низкий, можно взять
+последним из трёх.
