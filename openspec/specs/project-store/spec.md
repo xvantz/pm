@@ -54,17 +54,54 @@ Project numbers SHALL be monotonic. Under the single-writer daemon, increments a
 
 ### Requirement: Bulk close contract
 
-`Store` SHALL expose `CloseProject(projectID, reason string)`: every non-done step transitions to `done` with fresh `UpdatedAt`, the project becomes `completed` with `CompletedAt`, and a `Closed: <reason>` decision is recorded (empty reason defaults to `bulk close`). Closing an already completed project is an error. Lifecycle validation is intentionally bypassed here: archival must not cost N calls, and the reason decision keeps the audit trail.
+`Store` SHALL expose `CloseProject(projectID, reason string, confirm bool)
+(*ClosePlan, error)`: every non-done step transitions to `done` with fresh
+`UpdatedAt`, the project becomes `completed` with `CompletedAt`, and a
+`Closed: <reason>` decision is recorded. Closing an already completed project is
+an error. Lifecycle validation is intentionally bypassed here: archival must not
+cost N calls, and the reason decision keeps the audit trail.
+
+`confirm` gates the irreversible half and belongs in the store contract, not only
+in a caller: with `confirm=false` the call returns the plan and mutates nothing,
+with `confirm=true` it requires a non-empty `reason` and closes. A non-empty
+reason is mandatory — there is no default, because the decision is the only
+durable trace of why the project was closed.
+
+Closing does NOT resolve blockers: the blocker records stay on the completed
+steps.
+
+`Store` SHALL also expose `ClosePlan(projectID) (*ClosePlan, error)`: a read-only
+preview of what `CloseProject` would do — the steps that would move to `done`
+with their current statuses, and the unresolved blockers on them. It MUST NOT
+mutate anything. On a `completed` project it returns an empty plan, not an
+error. The plan exists so a caller can show a human what an irreversible bulk
+close is about to do before performing it.
 
 #### Scenario: Bulk close open project
 
-- **WHEN** `CloseProject` runs on a project with todo and in-progress steps
+- **WHEN** `CloseProject` runs with `confirm: true` and a reason on a project with todo and in-progress steps
 - **THEN** all steps are `done`, status is `completed`, and one `Closed:` decision exists
 
 #### Scenario: Double close rejected
 
 - **WHEN** `CloseProject` runs on a `completed` project
 - **THEN** an `already completed` error is returned and nothing changes
+
+#### Scenario: Preview mutates nothing
+
+- **WHEN** `CloseProject` runs with `confirm: false`
+- **THEN** it returns a plan, and the project's status, steps and decisions are unchanged
+
+#### Scenario: Confirm without a reason is refused
+
+- **WHEN** `CloseProject` runs with `confirm: true` and an empty or blank reason
+- **THEN** it returns an error naming the reason, and nothing changed
+
+#### Scenario: Plan describes the close without applying it
+
+- **WHEN** `ClosePlan` runs on a project with open steps and an unresolved blocker
+- **THEN** the plan lists those steps with their statuses and the blocker, and
+  the stored project is unchanged
 
 ### Requirement: Event timestamps
 

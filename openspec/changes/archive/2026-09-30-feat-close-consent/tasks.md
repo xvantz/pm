@@ -79,6 +79,13 @@
 - [x] 5.3 **Negative DoD (стопор живой):** вызвать `close_project` без
   `confirm` на реальном демоне → проект остаётся `active`
   **DoD:** живой прогон: план возвращён, `GET /api/projects/{ref}` → `active`
+  **Результат:** поднят настоящий `pm serve`, прогнан весь контракт:
+  план без confirm → HTTP 200, `confirmed:false`, 2 шага в плане, проект остался
+  `idea`, оба шага `todo`; confirm без reason → 422 и проект не тронут; confirm с
+  reason → 200, `completed`, оба шага `done`, decision `Closed: shipped live`;
+  повторный confirm → 422 `already completed`. CLI отдельно: `pm project close 2`
+  без reason → exit 1 с понятной ошибкой; с reason → закрывает, decision сохраняет
+  `shipped via cli`. Демон остановлен, временные файлы убраны.
 
 
 ## Границы
