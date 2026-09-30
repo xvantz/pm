@@ -263,25 +263,86 @@ func TestProjectCreateID(t *testing.T) {
 
 func TestProjectClose(t *testing.T) {
 	srv := newTestServer(t)
-	p := createProject(t, srv, "Closer")
+	createProject(t, srv, "Closer")
 	base := "/api/projects"
 	w := doReq(t, srv, "POST", base+"/1/steps", map[string]string{"title": "Work"}, testToken)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("create step: code = %d", w.Code)
 	}
-	w = doReq(t, srv, "POST", base+"/1/close", map[string]string{"reason": "test done"}, testToken)
+
+	// First call, no confirm: a plan comes back and nothing is closed. This is
+	// the gate — without it an agent could finish a project nobody approved.
+	w = doReq(t, srv, "POST", base+"/1/close", map[string]string{}, testToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("plan call: code = %d, body = %s", w.Code, w.Body.String())
+	}
+	var planned struct {
+		Confirmed bool             `json:"confirmed"`
+		Plan      *types.ClosePlan `json:"plan"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&planned); err != nil {
+		t.Fatal(err)
+	}
+	if planned.Confirmed {
+		t.Error("confirmed must be false on the first call")
+	}
+	if planned.Plan == nil {
+		t.Fatal("first call must return a plan")
+	}
+	if planned.Plan.StepsToClose() != 1 {
+		t.Errorf("plan steps = %d, want 1", planned.Plan.StepsToClose())
+	}
+	// The project must still be open after the preview.
+	w = doReq(t, srv, "GET", base+"/1", nil, testToken)
+	var afterPlan types.ProjectData
+	if err := json.NewDecoder(w.Body).Decode(&afterPlan); err != nil {
+		t.Fatal(err)
+	}
+	if afterPlan.Project.Status == types.StatusCompleted {
+		t.Fatalf("a preview must not close: status = %q", afterPlan.Project.Status)
+	}
+	for _, st := range afterPlan.Steps {
+		if st.Status == types.StepDone {
+			t.Errorf("a preview marked step %q done", st.ID)
+		}
+	}
+
+	// Confirm without a reason: refused, and still open.
+	w = doReq(t, srv, "POST", base+"/1/close",
+		map[string]any{"confirm": true}, testToken)
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Errorf("confirm without reason: code = %d, want 422", w.Code)
+	}
+	w = doReq(t, srv, "GET", base+"/1", nil, testToken)
+	if err := json.NewDecoder(w.Body).Decode(&afterPlan); err != nil {
+		t.Fatal(err)
+	}
+	if afterPlan.Project.Status == types.StatusCompleted {
+		t.Fatalf("a refused close must not complete the project: %q", afterPlan.Project.Status)
+	}
+
+	// Confirm with a reason: closes.
+	w = doReq(t, srv, "POST", base+"/1/close",
+		map[string]any{"confirm": true, "reason": "test done"}, testToken)
 	if w.Code != http.StatusOK {
 		t.Fatalf("close: code = %d, body = %s", w.Code, w.Body.String())
 	}
-	var closed types.Project
+	var closed struct {
+		Confirmed bool           `json:"confirmed"`
+		Project   *types.Project `json:"project"`
+	}
 	if err := json.NewDecoder(w.Body).Decode(&closed); err != nil {
 		t.Fatal(err)
 	}
-	if closed.Status != types.StatusCompleted {
-		t.Errorf("status = %q, want completed", closed.Status)
+	if !closed.Confirmed || closed.Project == nil {
+		t.Fatal("confirmed close must carry the project")
 	}
-	_ = p
-	w = doReq(t, srv, "POST", base+"/1/close", map[string]string{"reason": "again"}, testToken)
+	if closed.Project.Status != types.StatusCompleted {
+		t.Errorf("status = %q, want completed", closed.Project.Status)
+	}
+
+	w = doReq(t, srv, "POST", base+"/1/close",
+		map[string]any{"confirm": true, "reason": "again"}, testToken)
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("double close: code = %d, want 422", w.Code)
 	}

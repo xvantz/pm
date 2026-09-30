@@ -71,7 +71,7 @@ Usage:
   pm project goal <id> <text>    установить цель проекта
   pm project tag <id> <tag>...   добавить теги проекту
   pm project status <id> <st>    изменить статус (idea|active|paused|completed)
-  pm project close <id> [reason]  закрыть разом (все шаги done, без N вызовов)
+  pm project close <id> <reason>   закрыть разом (все шаги done, без N вызовов; reason обязателен)
   pm step start <id> <step-id>   начать работу над шагом
   pm step review <id> <step-id>  отправить шаг на ревью (агент)
   pm step done <id> <step-id>    завершить шаг (только с ревью)

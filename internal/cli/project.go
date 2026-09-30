@@ -254,19 +254,27 @@ func updateProject(ref string, fn func(p *types.Project)) error {
 
 // cmdProjectClose bulk-closes: all open steps done, status completed,
 // reason recorded. One call instead of N lifecycle transitions.
+//
+// No confirm prompt here: the person typing this at a terminal IS the consent,
+// so there is nothing to preview for them. reason is required for the same
+// reason it is required over MCP — it is the only durable trace of why the
+// project was closed — and a human is present to give a real one.
 func cmdProjectClose(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: pm project close <id> [reason]")
+		return fmt.Errorf("usage: pm project close <id> <reason>")
 	}
-	reason := "bulk close"
-	if len(args) > 1 {
-		reason = strings.Join(args[1:], " ")
+	reason := strings.Join(args[1:], " ")
+	if strings.TrimSpace(reason) == "" {
+		return fmt.Errorf("pm project close: reason is required, it is recorded as the project decision\nusage: pm project close <id> <reason>")
 	}
 	st, err := openStore()
 	if err != nil {
 		return err
 	}
-	if err := st.CloseProject(args[0], reason); err != nil {
+	// plan is only populated on the preview path; a confirmed close returns
+	// nil here, so the count must not be read unconditionally.
+	_, err = st.CloseProject(args[0], reason, true)
+	if err != nil {
 		return err
 	}
 	fmt.Printf("Project %s closed (%s).\n", args[0], reason)

@@ -97,7 +97,7 @@ pm step done 1 setup-caddy                       # finish (review only)
 pm blocker add --reason "no budget" 1 setup-caddy "Buy router"
 pm blocker resolve 1 setup-caddy router          # unblock
 pm decision add --reason "one binary" 1 "Go as language"
-pm project close 1 "shipped"                 # bulk close, no N calls
+pm project close 1 "shipped"                 # bulk close, reason required
 pm doctor                                        # integrity check (host-local, reads files)
 pm trash list                                    # trashed projects
 pm trash restore <name>                          # restore
@@ -120,7 +120,7 @@ pm-mcp is a JSON-RPC 2.0 server over stdio with NDJSON framing. 13 tools:
 | `add_blocker` | add a blocker |
 | `resolve_blocker` | resolve a blocker |
 | `add_decision` | record a decision with rationale |
-| `close_project` | bulk-close: steps done, completed, reason kept |
+| `close_project` | bulk-close: requires consent (see below) |
 | `delete_project` | move to trash (prefer close for finished work) |
 | `get_briefing` | generate a digest |
 | `list_steps` | project steps (JSON) |
@@ -227,6 +227,51 @@ date: "2026-06-13T11:05:19Z"
 project_id: "..."
 ```
 
+## Closing a project
+
+Bulk close is the one operation that deliberately bypasses the step lifecycle:
+it marks every open step `done`. That makes it able to mark unfinished work
+finished, so it requires consent.
+
+**From an agent (MCP), two calls:**
+
+```
+close_project(project_id)                          → plan, nothing changes
+close_project(project_id, confirm: true,
+               reason: "why it is closed")          → closes
+```
+
+The first call returns what would happen: the steps that would move to `done`
+with their current statuses, and the unresolved blockers on them. The agent
+shows that to a human; only after agreement does it call again. `reason` is
+required on the confirming call — it is recorded as the project's closing
+decision, so it is the only durable trace of why the project was closed.
+
+**From the CLI, one command:**
+
+```bash
+pm project close 1 "shipped in v1.2"
+```
+
+No confirmation prompt: the person typing it is the consent, so there is
+nothing to preview. `reason` is still required.
+
+Two things the plan makes explicit:
+
+- Closing does **not** resolve blockers. The records stay on the completed
+  steps. A blocker on a closed step is visible in `list_blockers` and still
+  carries its reason.
+- The close is not atomic: steps are written one by one, so an interrupted
+  close can leave some steps done. Re-running it finishes the job — steps
+  already `done` are skipped, and the project is not yet `completed`.
+
+### Known limit
+
+An agent holding a valid token can send `confirm: true` on the first call. The
+daemon cannot distinguish "the human agreed" from "the agent decided". This
+flow makes the agent show the plan; it does not prove a human read it. A real
+stop needs a confirmation only a human can issue.
+
 ## Timestamps
 
 Event times (`created_at`, `updated_at`, `completed_at`, decision `date`) are
@@ -262,7 +307,6 @@ partial, and the caller can see that they are. It never fails the whole file,
 and it is never silently replaced with a zero time.
 
 ### Days and time zones
-
 The briefing buckets events by calendar day in the **daemon's** time zone, not
 UTC. A step closed at 01:00 MSK belongs to today, not to the previous UTC day.
 Because both `pm briefing` and `get_briefing` are computed by the daemon, they

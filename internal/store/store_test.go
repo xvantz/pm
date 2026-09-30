@@ -669,7 +669,7 @@ func TestMockStore_CloseProject(t *testing.T) {
 			open++
 		}
 	}
-	if err := s.CloseProject(pd.Project.ID, "test close"); err != nil {
+	if _, err := s.CloseProject(pd.Project.ID, "test close", true); err != nil {
 		t.Fatalf("CloseProject error = %v", err)
 	}
 	after, _ := s.GetProject(pd.Project.ID)
@@ -691,7 +691,129 @@ func TestMockStore_CloseProject(t *testing.T) {
 		t.Error("closed decision not recorded")
 	}
 	t.Logf("closed %d open steps", open)
-	if err := s.CloseProject(pd.Project.ID, "again"); err == nil {
+	if _, err := s.CloseProject(pd.Project.ID, "again", true); err == nil {
 		t.Error("double close must fail")
+	}
+}
+
+func TestCloseProject_WithoutConfirmChangesNothing(t *testing.T) {
+	// The gate: this is the whole point of the change. A first call that closes
+	// would let an agent finish a project no human approved.
+	s := NewMockStore()
+	pd, err := s.ResolveProject("2")
+	if err != nil {
+		t.Fatalf("ResolveProject error = %v", err)
+	}
+	before := *pd
+	beforeSteps := append([]types.Step(nil), pd.Steps...)
+	beforeDecisions := len(pd.Decisions)
+
+	plan, err := s.CloseProject(pd.Project.ID, "ignored", false)
+	if err != nil {
+		t.Fatalf("plan call error = %v", err)
+	}
+	if plan == nil {
+		t.Fatal("plan is nil")
+	}
+	if plan.StepsToClose() == 0 {
+		t.Error("seed project should have open steps to close")
+	}
+
+	after, err := s.GetProject(pd.Project.ID)
+	if err != nil {
+		t.Fatalf("GetProject error = %v", err)
+	}
+	if after.Project.Status != before.Project.Status {
+		t.Errorf("status changed: %q → %q", before.Project.Status, after.Project.Status)
+	}
+	if len(after.Decisions) != beforeDecisions {
+		t.Errorf("decisions changed: %d → %d", beforeDecisions, len(after.Decisions))
+	}
+	for i, st := range after.Steps {
+		if i < len(beforeSteps) && st.Status != beforeSteps[i].Status {
+			t.Errorf("step %q status changed: %q → %q", st.ID, beforeSteps[i].Status, st.Status)
+		}
+	}
+}
+
+func TestCloseProject_ConfirmWithoutReasonRefused(t *testing.T) {
+	s := NewMockStore()
+	pd, _ := s.ResolveProject("2")
+	if _, err := s.CloseProject(pd.Project.ID, "", true); err == nil {
+		t.Fatal("confirm without a reason must fail")
+	} else if !strings.Contains(err.Error(), "reason") {
+		t.Errorf("error should name the reason, got: %v", err)
+	}
+	if _, err := s.CloseProject(pd.Project.ID, "   ", true); err == nil {
+		t.Fatal("whitespace-only reason must fail too")
+	}
+	after, _ := s.GetProject(pd.Project.ID)
+	if after.Project.Status == types.StatusCompleted {
+		t.Error("a refused close must not have completed the project")
+	}
+}
+
+func TestClosePlan_ListsStepsAndBlockers(t *testing.T) {
+	s := NewMockStore()
+	// Project 1 carries an unresolved blocker on a blocked step.
+	plan, err := s.ClosePlan("1")
+	if err != nil {
+		t.Fatalf("ClosePlan error = %v", err)
+	}
+	if plan.StepsToClose() == 0 {
+		t.Error("plan should list open steps")
+	}
+	if plan.BlockersToResolve() == 0 {
+		t.Error("plan should list the unresolved blocker of the seeded project")
+	}
+	for _, b := range plan.Blockers {
+		if b.StepName == "" {
+			t.Errorf("blocker %q has no step title to show a human", b.ID)
+		}
+	}
+	if plan.Empty() {
+		t.Error("plan with steps must not report Empty")
+	}
+}
+
+func TestClosePlan_DoesNotMutate(t *testing.T) {
+	s := NewMockStore()
+	pd, err := s.ResolveProject("1")
+	if err != nil {
+		t.Fatalf("ResolveProject error = %v", err)
+	}
+	before := pd.Project.Status
+	beforeSteps := append([]types.Step(nil), pd.Steps...)
+
+	if _, err := s.ClosePlan(pd.Project.ID); err != nil {
+		t.Fatalf("ClosePlan error = %v", err)
+	}
+
+	after, err := s.GetProject(pd.Project.ID)
+	if err != nil {
+		t.Fatalf("GetProject error = %v", err)
+	}
+	if after.Project.Status != before {
+		t.Errorf("ClosePlan changed status: %q → %q", before, after.Project.Status)
+	}
+	for i := range beforeSteps {
+		if after.Steps[i].Status != beforeSteps[i].Status {
+			t.Errorf("ClosePlan changed step %q", beforeSteps[i].ID)
+		}
+	}
+}
+
+func TestClosePlan_CompletedProjectIsEmptyNotError(t *testing.T) {
+	s := NewMockStore()
+	pd, _ := s.ResolveProject("2")
+	if _, err := s.CloseProject(pd.Project.ID, "done", true); err != nil {
+		t.Fatalf("close error = %v", err)
+	}
+	plan, err := s.ClosePlan(pd.Project.ID)
+	if err != nil {
+		t.Fatalf("ClosePlan on a completed project must not error, got: %v", err)
+	}
+	if !plan.Empty() {
+		t.Errorf("a completed project has nothing left to close, got %d steps", plan.StepsToClose())
 	}
 }

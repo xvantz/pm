@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/xvantz/pm/internal/briefing"
@@ -194,12 +195,13 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "close_project",
-			Description: "Bulk-close a finished project in one call: force-completes all open steps, marks it completed, records the reason. Use instead of N start/review/done calls.",
+			Description: "Bulk-close a finished project in one call: force-completes all open steps, marks it completed, records the reason. Use instead of N start/review/done calls. REQUIRES CONSENT: call once without confirm to get a plan, show it to the human, then call again with confirm=true and a reason.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
 					"project_id": {"type": "string", "description": "Project number or UUID"},
-					"reason": {"type": "string", "description": "Why it is closed, recorded as a decision (optional)"}
+					"reason": {"type": "string", "description": "Why it is closed, recorded as a decision. Required when confirm is true."},
+					"confirm": {"type": "boolean", "description": "Consent flag. Omit or false to receive a plan without closing anything. Set true only after a human agreed to the plan."}
 				},
 				"required": ["project_id"]
 			}`),
@@ -854,6 +856,7 @@ func handleCloseProject(st store.Store, ctx context.Context, args json.RawMessag
 	var params struct {
 		ProjectID string `json:"project_id"`
 		Reason    string `json:"reason,omitempty"`
+		Confirm   bool   `json:"confirm,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", fmt.Errorf("invalid args: %w", err)
@@ -861,18 +864,64 @@ func handleCloseProject(st store.Store, ctx context.Context, args json.RawMessag
 	if params.ProjectID == "" {
 		return "", fmt.Errorf("project_id is required")
 	}
-	if err := st.CloseProject(params.ProjectID, params.Reason); err != nil {
+
+	plan, err := st.CloseProject(params.ProjectID, params.Reason, params.Confirm)
+	if err != nil {
 		return "", err
 	}
+
+	// No confirm: the store returned a plan and changed nothing. Render it as
+	// something an agent can paste to a human, because the next step is that
+	// a human decides.
+	if !params.Confirm {
+		return formatClosePlan(plan), nil
+	}
+
 	pd, err := st.ResolveProject(params.ProjectID)
 	if err != nil {
 		return "", err
 	}
-	reason := params.Reason
-	if reason == "" {
-		reason = "bulk close"
+	return fmt.Sprintf("Project #%d %q closed (%s). %d step(s) moved to done.",
+		pd.Project.Number, pd.Project.Title, params.Reason, plan.StepsToClose()), nil
+}
+
+// formatClosePlan renders the preview for an agent to show a human.
+//
+// Blocker wording is deliberate: closing does not resolve blockers, the records
+// stay on the completed steps. Saying otherwise would let someone approve a
+// close believing a blocker had been settled.
+func formatClosePlan(plan *types.ClosePlan) string {
+	if plan == nil {
+		return "Nothing to close."
 	}
-	return fmt.Sprintf("Project #%d %q closed (%s).", pd.Project.Number, pd.Project.Title, reason), nil
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Project %q is NOT closed yet — consent is required.\n\n", plan.ProjectTitle)
+
+	if plan.StepsToClose() == 0 {
+		sb.WriteString("All steps are already done. Closing would only mark the project completed.\n")
+	} else {
+		fmt.Fprintf(&sb, "Closing will mark %d step(s) done:\n", plan.StepsToClose())
+		for _, s := range plan.Steps {
+			fmt.Fprintf(&sb, "  - %s [%s]\n", s.Title, s.Status)
+		}
+	}
+
+	if n := plan.BlockersToResolve(); n > 0 {
+		fmt.Fprintf(&sb, "\n%d unresolved blocker(s) on these steps:\n", n)
+		for _, b := range plan.Blockers {
+			if b.Reason != "" {
+				fmt.Fprintf(&sb, "  - %s (step %s): %s\n", b.Title, b.StepName, b.Reason)
+			} else {
+				fmt.Fprintf(&sb, "  - %s (step %s)\n", b.Title, b.StepName)
+			}
+		}
+		sb.WriteString("NOTE: closing does NOT resolve blockers — these records stay on the completed steps.\n")
+	}
+
+	sb.WriteString("\nTo proceed, show this to the human and, if they agree, call again with:\n")
+	fmt.Fprintf(&sb, "  confirm: true, reason: \"<why the project is closed>\"\n")
+	sb.WriteString("A reason is required; it is recorded as the project decision.\n")
+	return sb.String()
 }
 
 func handleDeleteProject(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {

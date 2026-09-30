@@ -44,6 +44,7 @@ func New(st store.Store, token string) *Server {
 	s.mux.HandleFunc("PATCH /api/projects/{ref}", s.auth(s.handleProjectPatch))
 	s.mux.HandleFunc("DELETE /api/projects/{ref}", s.auth(s.handleProjectDelete))
 	s.mux.HandleFunc("POST /api/projects/{ref}/close", s.auth(s.handleProjectClose))
+	s.mux.HandleFunc("GET /api/projects/{ref}/close-plan", s.auth(s.handleProjectClosePlan))
 	s.mux.HandleFunc("GET /api/projects/{ref}/steps", s.auth(s.handleStepsList))
 	s.mux.HandleFunc("POST /api/projects/{ref}/steps", s.auth(s.handleStepCreate))
 	s.mux.HandleFunc("POST /api/projects/{ref}/steps/{step}/{action}", s.auth(s.handleStepAction))
@@ -261,6 +262,18 @@ func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request) {
 
 type closeProjectReq struct {
 	Reason string `json:"reason,omitempty"`
+	// Confirm gates the irreversible half. Without it the call returns a plan
+	// and changes nothing: bulk close bypasses the step lifecycle on purpose,
+	// so it is the one operation that can mark unfinished work finished.
+	Confirm bool `json:"confirm,omitempty"`
+}
+
+// closeProjectResp carries a plan or a closed project, never both. Confirmed
+// says which: false means the caller has not consented and must look first.
+type closeProjectResp struct {
+	Confirmed bool             `json:"confirmed"`
+	Plan      *types.ClosePlan `json:"plan,omitempty"`
+	Project   *types.Project   `json:"project,omitempty"`
 }
 
 func (s *Server) handleProjectClose(w http.ResponseWriter, r *http.Request) {
@@ -277,7 +290,22 @@ func (s *Server) handleProjectClose(w http.ResponseWriter, r *http.Request) {
 	if pd == nil {
 		return
 	}
-	if err := s.store.CloseProject(pd.Project.ID, req.Reason); err != nil {
+
+	if !req.Confirm {
+		// Preview only. Read-only path: nothing below this point may save.
+		plan, err := s.store.ClosePlan(pd.Project.ID)
+		if err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, closeProjectResp{Confirmed: false, Plan: plan})
+		return
+	}
+
+	// Consent given. The store enforces the reason and performs the close;
+	// the daemon only shapes the response.
+	_, err := s.store.CloseProject(pd.Project.ID, req.Reason, true)
+	if err != nil {
 		writeErr(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
@@ -286,7 +314,27 @@ func (s *Server) handleProjectClose(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, closed.Project)
+	writeJSON(w, http.StatusOK, closeProjectResp{Confirmed: true, Project: &closed.Project})
+}
+
+// handleProjectClosePlan answers "what would closing do" without closing.
+// The two-call consent flow needs the plan available on its own too, so an
+// agent can look before it even decides to ask, and the CLI can print the same
+// list a human would see.
+func (s *Server) handleProjectClosePlan(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	plan, err := s.store.ClosePlan(pd.Project.ID)
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, plan)
 }
 
 // --- steps ---

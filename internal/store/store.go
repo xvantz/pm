@@ -31,7 +31,18 @@ type Store interface {
 	// completed and records a "Closed: <reason>" decision. Bulk close
 	// in one call: the strict step lifecycle is for active work,
 	// archival must not cost N calls.
-	CloseProject(projectID, reason string) error
+	//
+	// confirm gates the irreversible half and is part of the contract, not a
+	// convenience: with confirm=false this returns the plan and changes
+	// nothing, with confirm=true it requires a non-empty reason and closes.
+	// Without it in the interface, an agent reaching this method through any
+	// adapter would silently close projects nobody approved.
+	CloseProject(projectID, reason string, confirm bool) (*types.ClosePlan, error)
+	// ClosePlan previews CloseProject without mutating anything: the steps
+	// that would move to done and the blockers that would be completed.
+	// Read-only by contract, so a caller can show a human what an
+	// irreversible bulk close is about to do.
+	ClosePlan(projectID string) (*types.ClosePlan, error)
 	// DeleteProject moves a project to .trash.
 	DeleteProject(id string) error
 	// TrashList returns the names of items in the trash.

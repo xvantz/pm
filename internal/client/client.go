@@ -154,11 +154,48 @@ func (c *Client) DeleteProject(ref string) (string, error) {
 	return out["trashed"], nil
 }
 
+// closeReq is the body of POST /api/projects/{ref}/close.
+//
+// Confirm is what separates the two calls: without it the daemon returns a
+// plan and changes nothing, with it the close proceeds. Reason is mandatory
+// on confirm — it is the only durable trace of why the project was closed.
+type closeReq struct {
+	Reason  string `json:"reason,omitempty"`
+	Confirm bool   `json:"confirm,omitempty"`
+}
+
+// closeResponse is what the daemon returns from POST /close. Exactly one of
+// the two is populated, decided by the request's confirm: a plan when the
+// caller has not consented yet, the closed project once they have.
+type closeResponse struct {
+	Confirmed bool             `json:"confirmed"`
+	Project   *types.Project   `json:"project,omitempty"`
+	Plan      *types.ClosePlan `json:"plan,omitempty"`
+}
+
 // CloseProject bulk-closes: open steps done, status completed, reason kept.
-func (c *Client) CloseProject(ref, reason string) (*types.Project, error) {
-	var out types.Project
+// With confirm=false it returns the plan and touches nothing; the returned
+// project is nil in that case.
+func (c *Client) CloseProject(ref, reason string, confirm bool) (*types.Project, *types.ClosePlan, error) {
+	var out closeResponse
 	err := c.do("POST", "/api/projects/"+url.PathEscape(ref)+"/close",
-		map[string]string{"reason": reason}, &out)
+		closeReq{Reason: reason, Confirm: confirm}, &out)
+	if err != nil {
+		return nil, nil, err
+	}
+	if out.Plan != nil {
+		return nil, out.Plan, nil
+	}
+	if out.Project == nil {
+		return nil, nil, fmt.Errorf("close %s: response carried neither project nor plan", ref)
+	}
+	return out.Project, nil, nil
+}
+
+// ClosePlan previews the close without touching the project.
+func (c *Client) ClosePlan(ref string) (*types.ClosePlan, error) {
+	var out types.ClosePlan
+	err := c.do("GET", "/api/projects/"+url.PathEscape(ref)+"/close-plan", nil, &out)
 	if err != nil {
 		return nil, err
 	}
