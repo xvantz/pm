@@ -51,6 +51,10 @@ type Store interface {
 	TrashRestore(trashName string) error
 	// TrashClean permanently removes all trashed items.
 	TrashClean() error
+	// Check walks the store and reports integrity: counts, orphans,
+	// unreadable files and timestamp stats. Read-only by contract.
+	// Implemented by the single writer, so every caller observes one state.
+	Check() (*types.DoctorReport, error)
 	// DeleteStep removes a step and its blockers.
 	DeleteStep(projectID, stepID string) error
 	// DeleteBlocker removes a blocker from a step.

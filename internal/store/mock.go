@@ -250,6 +250,10 @@ func (m *MockStore) TrashRestore(trashName string) error {
 
 func (m *MockStore) TrashClean() error { return nil }
 
+func (m *MockStore) Check() (*types.DoctorReport, error) {
+	return &types.DoctorReport{}, nil
+}
+
 func (s *MockStore) DeleteStep(projectID, stepID string) error {
 	pd, ok := s.projects[projectID]
 	if !ok {

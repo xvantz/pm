@@ -2,169 +2,54 @@ package cli
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-
-	"gopkg.in/yaml.v3"
-
-	"github.com/xvantz/pm/internal/types"
 )
 
+// cmdDoctor prints the daemon's integrity verdict.
+//
+// It asks the daemon instead of walking files itself: the daemon is the
+// single reader, so there is nothing to compare and nothing to diverge.
+// A dead daemon is the verdict (fix the daemon) - there is deliberately no
+// local fallback scan, which would reintroduce the second reader.
 func cmdDoctor(args []string) error {
-	root := defaultProjectsDir()
-
-	// Check if store exists
-	if info, err := os.Stat(root); err != nil || !info.IsDir() {
-		fmt.Println("PM Doctor — проверка целостности хранилища")
-		fmt.Println(strings.Repeat("=", 60))
-		fmt.Printf("❌ Хранилище не найдено: %s\n", root)
-		fmt.Println("   Запустите `pm init`.")
-		return nil
+	st, err := openStore()
+	if err != nil {
+		return err
+	}
+	rep, err := st.Check()
+	if err != nil {
+		if strings.Contains(err.Error(), "store not found") {
+			fmt.Println("PM Doctor — проверка целостности хранилища")
+			fmt.Println(strings.Repeat("=", 60))
+			fmt.Printf("❌ %v\n", err)
+			fmt.Println("   Запустите `pm init`.")
+			return nil
+		}
+		return err
 	}
 
 	fmt.Println("PM Doctor — проверка целостности хранилища")
 	fmt.Println(strings.Repeat("=", 60))
-	fmt.Printf("Путь: %s\n\n", root)
+	fmt.Printf("Путь (взгляд демона): %s\n\n", rep.Root)
 
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return fmt.Errorf("read store root: %w", err)
-	}
-
-	known := map[string]bool{".trash": true, "_meta": true}
-	var totalProjects, totalSteps, totalDecisions, totalBlockers int
-	var errCount int
-	var legacyCount, brokenCount int
-	var orphans []string
-
-	// countStamps classifies the timestamp fields of one entity: legacy
-	// (date-only, readable, will be rewritten on next write) and broken
-	// (unreadable, excluded from counts and reported by the briefing).
-	countStamps := func(stamps ...types.Timestamp) {
-		for _, ts := range stamps {
-			switch _, invalid := ts.Invalid(); {
-			case invalid:
-				brokenCount++
-			case ts.IsLegacy():
-				legacyCount++
-			}
-		}
-	}
-
-	for _, e := range entries {
-		if !e.IsDir() || known[e.Name()] {
-			continue
-		}
-
-		projDir := filepath.Join(root, e.Name())
-		projectFile := filepath.Join(projDir, "project.yaml")
-
-		if _, err := os.Stat(projectFile); os.IsNotExist(err) {
-			orphans = append(orphans, e.Name())
-			continue
-		}
-
-		data, err := os.ReadFile(projectFile)
-		if err != nil {
-			fmt.Printf("  ❌ %s: read error: %v\n", e.Name(), err)
-			errCount++
-			continue
-		}
-		var p types.Project
-		if err := yaml.Unmarshal(data, &p); err != nil {
-			fmt.Printf("  ❌ %s: YAML parse error: %v\n", e.Name(), err)
-			errCount++
-			continue
-		}
-
+	for _, p := range rep.Projects {
 		fmt.Printf("  ✅ #%d %s (%s)\n", p.Number, p.Title, p.ID)
-		totalProjects++
-		countStamps(p.CreatedAt, p.UpdatedAt, p.CompletedAt)
-
-		// Check steps
-		stepsDir := filepath.Join(projDir, "steps")
-		stepCount := 0
-		stepBlockers := 0
-		if stepEntries, err := os.ReadDir(stepsDir); err == nil {
-			for _, se := range stepEntries {
-				if se.IsDir() || filepath.Ext(se.Name()) != ".yaml" {
-					continue
-				}
-				stepCount++
-				stepPath := filepath.Join(stepsDir, se.Name())
-				stepData, err := os.ReadFile(stepPath)
-				if err != nil {
-					fmt.Printf("     ⚠ step %s: read error: %v\n", se.Name(), err)
-					errCount++
-					continue
-				}
-				var step types.Step
-				if err := yaml.Unmarshal(stepData, &step); err != nil {
-					fmt.Printf("     ⚠ step %s: YAML parse error: %v\n", se.Name(), err)
-					errCount++
-					continue
-				}
-				countStamps(step.CreatedAt, step.UpdatedAt)
-				for _, bl := range step.Blockers {
-					countStamps(bl.CreatedAt, bl.UpdatedAt)
-				}
-				if step.ProjectID != p.ID {
-					fmt.Printf("     ⚠ step %s: project_id mismatch (%s != %s)\n", se.Name(), step.ProjectID, p.ID)
-					errCount++
-				}
-				stepBlockers += len(step.Blockers)
-			}
-		}
-		totalSteps += stepCount
-		totalBlockers += stepBlockers
-
-		// Check decisions
-		decDir := filepath.Join(projDir, "decisions")
-		decCount := 0
-		if decEntries, err := os.ReadDir(decDir); err == nil {
-			for _, de := range decEntries {
-				if de.IsDir() || filepath.Ext(de.Name()) != ".yaml" {
-					continue
-				}
-				decCount++
-				decPath := filepath.Join(decDir, de.Name())
-				decData, err := os.ReadFile(decPath)
-				if err != nil {
-					fmt.Printf("     ⚠ decision %s: read error: %v\n", de.Name(), err)
-					errCount++
-					continue
-				}
-				var dec types.Decision
-				if err := yaml.Unmarshal(decData, &dec); err != nil {
-					fmt.Printf("     ⚠ decision %s: YAML parse error: %v\n", de.Name(), err)
-					errCount++
-					continue
-				}
-				countStamps(dec.Date)
-				if dec.ProjectID != p.ID {
-					fmt.Printf("     ⚠ decision %s: project_id mismatch (%s != %s)\n", de.Name(), dec.ProjectID, p.ID)
-					errCount++
-				}
-			}
-		}
-		totalDecisions += decCount
-
-		fmt.Printf("     Шагов: %d, Блокеров: %d, Решений: %d\n", stepCount, stepBlockers, decCount)
+		fmt.Printf("     Шагов: %d, Блокеров: %d, Решений: %d\n", p.Steps, p.Blockers, p.Decisions)
+	}
+	for _, issue := range rep.Issues {
+		fmt.Printf("  ❌ %s\n", issue)
 	}
 
 	// Legacy timestamps: readable, but date-only, so they carry no intraday
 	// information. They are rewritten in canonical form the next time the
-	// record is written, so this is a progress counter, not a repair list —
-	// hence no auto-fix here (writing outside the daemon would reintroduce the
-	// races the daemon removed).
+	// record is written, so this is a progress counter, not a repair list.
 	fmt.Println()
 	fmt.Printf("Метки времени: %d устаревших (только дата), %d битых\n",
-		legacyCount, brokenCount)
-	if legacyCount > 0 {
+		rep.LegacyTimestamps, rep.BrokenTimestamps)
+	if rep.LegacyTimestamps > 0 {
 		fmt.Println("  Устаревшие метки перепишутся в RFC3339 при следующем изменении записи.")
 	}
-	if brokenCount > 0 {
+	if rep.BrokenTimestamps > 0 {
 		fmt.Println("  ⚠ Битые метки не читаются: брифинг исключает их из подсчётов и пишет warning.")
 	}
 
@@ -172,21 +57,21 @@ func cmdDoctor(args []string) error {
 	fmt.Println()
 	fmt.Println(strings.Repeat("=", 60))
 	fmt.Printf("Итого:\n")
-	fmt.Printf("  Проектов:  %d\n", totalProjects)
-	fmt.Printf("  Шагов:     %d\n", totalSteps)
-	fmt.Printf("  Блокеров:  %d\n", totalBlockers)
-	fmt.Printf("  Решений:   %d\n", totalDecisions)
+	fmt.Printf("  Проектов:  %d\n", len(rep.Projects))
+	fmt.Printf("  Шагов:     %d\n", rep.TotalSteps)
+	fmt.Printf("  Блокеров:  %d\n", rep.TotalBlockers)
+	fmt.Printf("  Решений:   %d\n", rep.TotalDecisions)
 
-	if len(orphans) > 0 {
-		fmt.Printf("\n⚠ Сиротских директорий (без project.yaml): %d\n", len(orphans))
-		for _, o := range orphans {
+	if len(rep.Orphans) > 0 {
+		fmt.Printf("\n⚠ Сиротских директорий (без project.yaml): %d\n", len(rep.Orphans))
+		for _, o := range rep.Orphans {
 			fmt.Printf("  - %s\n", o)
 		}
 	}
 
-	if errCount > 0 {
-		fmt.Printf("\n❌ Найдено ошибок: %d\n", errCount)
-		return fmt.Errorf("doctor found %d error(s)", errCount)
+	if rep.HasIssues() {
+		fmt.Printf("\n❌ Найдено ошибок: %d\n", len(rep.Issues)+len(rep.Orphans))
+		return fmt.Errorf("doctor found %d issue(s)", len(rep.Issues)+len(rep.Orphans))
 	}
 
 	fmt.Println()

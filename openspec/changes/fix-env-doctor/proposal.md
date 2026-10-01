@@ -2,21 +2,79 @@
 
 ## Why
 
-Две операционные дыры (P8, P10 пула): модуль не раздает PM_API (смена listenAddr роняет клиентов, сейчас только дефолт спасает), doctor проверяет локальный PM_DIR в то время как демон может смотреть в другое место. Remote-only наполовину: адрес захардкожен конвенцией.
+Две операционные дыры (P8, P10 пула), premise проверен по коду 2026-10-01:
+
+1. **Модуль не раздает PM_API.** `flake.nix` кладет `PM_TOKEN` в шеллы через
+   sops-файл и `PM_DIR` через sessionVariables, а `PM_API` нет нигде.
+   Клиенты падают на захардкоженный дефолт `apistore.DefaultAddr`
+   (`internal/apistore/env.go`): смена `listenAddr` роняет всех молча.
+   Курящий ствол найден в другом репо: `/dotfiles/.../hermes.nix:298`
+   хардкодит `env.PM_API = "http://127.0.0.1:8472"` для MCP-сервера. Смена
+   адреса роняет и шеллы, и агента одновременно, в двух репо сразу.
+2. **У доктора два читателя.** `cmdDoctor` ходит по файлам напрямую
+   (`PM_DIR`), `doctorLive` ходит в демон (`PM_API`). Несовпадение корней
+   сегодня невидимо: демону негде сказать "я служу вот это".
 
 ## What Changes
 
-- Flake модуль раздает PM_API (адрес из listenAddr) в шеллы и MCP env рядом с PM_TOKEN.
-- Doctor: явное разделение file-целостность (PM_DIR) vs daemon-доступ (PM_API), несовпадение путей подсвечивается а не молчит.
-- AGENTS.md/док обновить под оба env.
+Решение пересмотрено в обсуждении: вместо сравнения двух сторон убираем
+вторую сторону. Один читатель - демон.
+
+- **Flake модуль раздает PM_API** из `listenAddr` (`http://` + адрес): в
+  `environment.sessionVariables` и в `interactiveShellInit` zsh/bash рядом с
+  уже раздаваемым `PM_TOKEN`/`PM_DIR`. Не секрет - в nix store можно.
+- **Dotfiles `hermes.nix` на тот же источник**: `env.PM_API` собирается из
+  `config.services.pm.listenAddr` вместо хардкода. Модули живут в одном
+  NixOS-конфиге (`hermes.nix` уже читает `config.services.pm.package`),
+  так что это та же опция, а не дублирование значения.
+- **Демон проверяет сам себя**: новый `GET /api/doctor` возвращает отчет
+  целостности по своему стору (счетчики, сироты, битые YAML, legacy/битые
+  метки). Проверка переезжает из `internal/cli/doctor.go` в метод стора,
+  хендлер только отдает. `pm doctor` спрашивает демона и печатает отчет.
+- **Fallback нет.** Демон недоступен - доктор ругается, что демона нет, и
+  все. Лечите демона. Локального сканирования файлов больше нет: держать
+  второй путь чтения ради случая "демон лежит" значит держать тот самый
+  второй читатель, от которого уходим. Решение сознательное, записано здесь,
+  а не обнаружено потом.
+- **README примеры чинятся**: `README.md:83,140` показывают захардкоженный
+  адрес - обновить под derived.
+
+## Non-goals
+
+- Не переносим `PM_TOKEN` в sessionVariables: секрет, ему место только в
+  sops-файле и шеллах. Разница с PM_API осознанная и записана здесь.
+- Не заставляем MCP читать адрес из шелла: у контейнера Hermes нет login
+  shell, ему адрес кладет модуль. Два пути раздачи (шеллы + контейнер) -
+  не дублирование, а две разные среды.
+- Не валидируем достижимость адреса в момент билда: демона может не быть
+  во время `nixos-rebuild`, проверка - дело smoke, не сборки.
+- Не чиним `pm init` под новый мир: создание стора остается хост-локальным,
+  это отдельная тема, не doctor.
 
 ## Impact
 
-- Affected specs: `serve-api` (MODIFIED: Nix options + env контракт), `cli-lifecycle` (MODIFIED: Doctor).
-- Affected code: `flake.nix`, `internal/cli/doctor*.go`, dotfiles `hermes.nix` (кросс-репо часть).
-
-**Граница с fix-event-time:** счётчик legacy/битых меток в `pm doctor` и правило
-зоны дня уже реализованы и специфицированы в `fix-event-time`
-(`project-store`: Event timestamps, Calendar-day bucketing). Этот ченж НЕ трогает
-эти аспекты: его `MODIFIED: Doctor` касается только разделения file-vs-daemon
-проверок и вывода про PM_API/PM_DIR. Не дублировать.
+- Affected specs: `serve-api` (MODIFIED: Nix options + env контракт - уже
+  написанная дельта покрывает PM_API; ADDED: эндпоинт проверки),
+  `cli-lifecycle` (MODIFIED: Doctor - вердикт демона, без fallback).
+- Affected code: `flake.nix` (PM_API в sessionVariables + shellInit),
+  `internal/types` (тип отчета), `internal/store/store.go` (метод в
+  интерфейсе) + `filestore.go` (переезд проверки) + `mock.go`,
+  `internal/api/server.go` (хендлер), `internal/client/client.go` +
+  `internal/apistore/apistore.go` (проброс), `internal/cli/doctor.go`
+  (удалить файловый обход, звать демона) + `internal/cli/doctor_live.go`
+  (демон недоступен = ошибка, без локального скана),
+  `internal/cli/doctor_timestamp_test.go` (переписать под демон: FileStore
+  напрямую + httptest, фикстуры-каталоги больше не подходят), README примеры.
+  Кросс-репо: `/dotfiles/modules/system/hermes/hermes.nix` (`env.PM_API` из
+  `services.pm.listenAddr`) - отдельным коммитом туда, не сюда.
+- Соседи (проверены грепом, правило 4):
+  - `hermes-integration:11` документирует `env.PM_API` с дефолтом - значение
+    по умолчанию не меняется, правок не надо.
+  - `serve-api` "Endpoints mirror the store" перечисляет эндпоинты без
+    trash/close - неполнота уже есть как прецедент, новый эндпоинт идет
+    отдельной ADDED-доктриной, список не трогаем.
+  - `fix-event-time` граница (legacy-счетчик, зона дня) - счетчик переезжает
+    в метод стора как есть, правило зоны не трогаем.
+- Пересечения по файлам: активных нет. `flake.nix`, `doctor*.go` ни один
+  открытый ченж не трогает.
+- P8/P10 пула закрываются архивом этого ченжа.

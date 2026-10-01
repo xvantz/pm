@@ -11,7 +11,8 @@ import (
 )
 
 // doctorLive answers the operational half: token, daemon, service.
-// File integrity is checked by cmdDoctor before this runs.
+// Integrity itself comes from the daemon (cmdDoctor asks it first);
+// this only verifies the path to the daemon and its surroundings.
 func doctorLive() error {
 	fmt.Println()
 	fmt.Println("PM Doctor — демон и окружение")

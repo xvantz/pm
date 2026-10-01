@@ -77,7 +77,8 @@ export PM_TOKEN=$(openssl rand -hex 32)
 pm serve --addr 127.0.0.1:8472 &
 ```
 
-Point clients at it (address defaults to the serve convention, token from `PM_TOKEN`):
+Point clients at it (the flake module provisions `PM_API` from `listenAddr`,
+so on NixOS hosts this export is already done; shown here for manual setups):
 
 ```bash
 export PM_API=http://127.0.0.1:8472 PM_TOKEN=...
@@ -98,7 +99,7 @@ pm blocker add --reason "no budget" 1 setup-caddy "Buy router"
 pm blocker resolve 1 setup-caddy router          # unblock
 pm decision add --reason "one binary" 1 "Go as language"
 pm project close 1 "shipped"                 # bulk close, reason required
-pm doctor                                        # integrity check (host-local, reads files)
+pm doctor                                        # integrity verdict from the daemon
 pm trash list                                    # trashed projects
 pm trash restore <name>                          # restore
 pm briefing                                      # daily digest
@@ -137,7 +138,7 @@ In remote mode pm-mcp needs no data directory at all — only `PM_API` + `PM_TOK
 { config, ... }: {
   services.hermes-agent.mcpServers.pm = {
     command = "${config.services.pm.package}/bin/pm-mcp";
-    env.PM_API = "http://127.0.0.1:8472";
+    env.PM_API = "http://${config.services.pm.listenAddr}";
     env.PM_TOKEN = "\${PM_TOKEN}";
   };
 }

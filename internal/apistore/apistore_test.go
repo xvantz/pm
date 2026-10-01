@@ -2,6 +2,7 @@ package apistore
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/xvantz/pm/internal/api"
@@ -190,5 +191,18 @@ func TestRemoteTrash(t *testing.T) {
 	names, _ = st.TrashList()
 	if len(names) != 0 {
 		t.Fatalf("trash not empty: %v", names)
+	}
+}
+
+func TestRemoteCheck_DeadDaemonIsTheVerdict(t *testing.T) {
+	// Nothing listens here: the check must fail naming the daemon, not fall
+	// back to a local scan that could disagree with it.
+	st, _ := NewFromEnvVars("http://127.0.0.1:1", "tok")
+	_, err := st.Check()
+	if err == nil {
+		t.Fatal("check against a dead daemon must fail")
+	}
+	if !strings.Contains(err.Error(), "daemon") {
+		t.Errorf("error must name the daemon, got: %v", err)
 	}
 }

@@ -31,3 +31,22 @@ so changing the address never orphans clients on the default.
 
 - **WHEN** `listenAddr` is changed from the default
 - **THEN** shells and MCP pick the new address from provisioned `PM_API` with no hand edits
+
+## ADDED Requirements
+
+### Requirement: Daemon-side integrity check
+
+`GET /api/doctor` SHALL return an integrity report over the daemon's own
+store: project/step/blocker/decision counts, orphan dirs, unreadable files,
+and legacy/unreadable timestamp counts. It SHALL require auth like the rest
+of `/api`. The check runs inside the single writer, so it observes the same
+state every client sees.
+
+Rationale: a CLI-side file walk is a second reader beside the daemon, and
+the two can disagree about which root they checked. Moving the walk into the
+daemon removes the divergence class instead of instrumenting it.
+
+#### Scenario: Healthy store reports counts
+
+- **WHEN** `GET /api/doctor` answers on a healthy store
+- **THEN** the body carries the entity counts with empty issue lists

@@ -120,8 +120,13 @@
 
             environment.systemPackages = [ cfg.package ];
             environment.sessionVariables.PM_DIR = cfg.dataDir;
+            # PM_API is not a secret (plain http address), so unlike PM_TOKEN
+            # it can live in the store. Derived from listenAddr: changing the
+            # address never orphans shells on the default.
+            environment.sessionVariables.PM_API = "http://${cfg.listenAddr}";
             environment.interactiveShellInit = ''
               export PM_DIR="${cfg.dataDir}"
+              export PM_API="http://${cfg.listenAddr}"
             '';
 
             # The service provisions PM_TOKEN into the user's login shells:
