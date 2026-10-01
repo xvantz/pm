@@ -261,6 +261,30 @@ func TestProjectCreateID(t *testing.T) {
 	}
 }
 
+func TestStepCreate_DuplicateSlugConflicts(t *testing.T) {
+	srv := newTestServer(t)
+	createProject(t, srv, "Dup")
+	base := "/api/projects"
+	w := doReq(t, srv, "POST", base+"/1/steps", map[string]string{"title": "Hello World"}, testToken)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("first create: code = %d", w.Code)
+	}
+	// Different title, same slug: must conflict, not merge.
+	w = doReq(t, srv, "POST", base+"/1/steps", map[string]string{"title": "hello_world"}, testToken)
+	if w.Code != http.StatusConflict {
+		t.Errorf("colliding slug: code = %d, want 409", w.Code)
+	}
+	// The first step is untouched.
+	w = doReq(t, srv, "GET", base+"/1/steps", nil, testToken)
+	var steps []types.Step
+	if err := json.NewDecoder(w.Body).Decode(&steps); err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) != 1 || steps[0].Title != "Hello World" {
+		t.Errorf("first step disturbed: %+v", steps)
+	}
+}
+
 func TestProjectClose(t *testing.T) {
 	srv := newTestServer(t)
 	createProject(t, srv, "Closer")
