@@ -20,7 +20,7 @@ func RegisterPMTools(s *Server, st store.Store) {
 	tools := []Tool{
 		{
 			Name:        "list_projects",
-			Description: "List all projects with their status and progress",
+			Description: "List all projects with status and progress. Start here to find a project number, then read state with get_project.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 			Handler:     makeHandler(st, handleListProjects),
 		},
@@ -30,7 +30,7 @@ func RegisterPMTools(s *Server, st store.Store) {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"project_id": {"type": "string", "description": "Project number or UUID"},
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"},
 					"detail": {"type": "boolean", "description": "Return the full project data with every step and decision instead of the summary (optional)"}
 				},
 				"required": ["project_id"]
@@ -39,12 +39,12 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "get_step",
-			Description: "Get one step in full, with its blockers and artifacts. Use this instead of reading the whole project when you only need one step.",
+			Description: "Get one step in full, with its blocker reasons and artifacts. Use this instead of reading the whole project when you only need one step; list_steps carries only blocker ids.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"project_id": {"type": "string", "description": "Project number or UUID"},
-					"step_id": {"type": "string", "description": "Step slug/ID"}
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"},
+					"step_id": {"type": "string", "description": "Step slug/ID (see id in list_steps)"}
 				},
 				"required": ["project_id", "step_id"]
 			}`),
@@ -52,7 +52,7 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "add_project",
-			Description: "Create a new project with title, goal and tags (status idea)",
+			Description: "Create a new project (status idea). Then add steps with add_step; to finish work use close_project, not delete_project.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -66,11 +66,11 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "add_step",
-			Description: "Add a step to a project (starts as todo, then start/review/done)",
+			Description: "Add a step to a project (starts as todo). Advance it with start_step -> review_step -> done_step.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"project_id": {"type": "string", "description": "Project number or UUID"},
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"},
 					"title": {"type": "string", "description": "Step title"}
 				},
 				"required": ["project_id", "title"]
@@ -79,12 +79,12 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "start_step",
-			Description: "Mark a step as in_progress",
+			Description: "Begin work on a todo step. Next is review_step when work is done, never done_step directly.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"project_id": {"type": "string", "description": "Project number or UUID"},
-					"step_id": {"type": "string", "description": "Step slug/ID"}
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"},
+					"step_id": {"type": "string", "description": "Step slug/ID (see id in list_steps)"}
 				},
 				"required": ["project_id", "step_id"]
 			}`),
@@ -92,12 +92,12 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "review_step",
-			Description: "Send a step to review (agent completes, human approves)",
+			Description: "Mark work complete on an in_progress step; a human approves. Next is done_step. Blocked instead? Use add_blocker.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"project_id": {"type": "string", "description": "Project number or UUID"},
-					"step_id": {"type": "string", "description": "Step slug/ID"}
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"},
+					"step_id": {"type": "string", "description": "Step slug/ID (see id in list_steps)"}
 				},
 				"required": ["project_id", "step_id"]
 			}`),
@@ -105,12 +105,12 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "done_step",
-			Description: "Mark a step as done (must be in review first)",
+			Description: "Mark a review step as done. Fails unless in review - call review_step first. To finish everything at once use close_project.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"project_id": {"type": "string", "description": "Project number or UUID"},
-					"step_id": {"type": "string", "description": "Step slug/ID"}
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"},
+					"step_id": {"type": "string", "description": "Step slug/ID (see id in list_steps)"}
 				},
 				"required": ["project_id", "step_id"]
 			}`),
@@ -118,12 +118,12 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "add_blocker",
-			Description: "Add a blocker to a step (blocks it until resolved)",
+			Description: "Flag what blocks a step; the step stays blocked until resolve_blocker clears it.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"project_id": {"type": "string", "description": "Project number or UUID"},
-					"step_id": {"type": "string", "description": "Step slug/ID"},
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"},
+					"step_id": {"type": "string", "description": "Step slug/ID (see id in list_steps)"},
 					"title": {"type": "string", "description": "Blocker title"},
 					"reason": {"type": "string", "description": "Why this blocker exists (optional)"}
 				},
@@ -133,13 +133,13 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "resolve_blocker",
-			Description: "Resolve a blocker on a step",
+			Description: "Clear a blocker by blocker_id (find ids in list_steps or get_step). The step keeps its status, it does not advance.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"project_id": {"type": "string", "description": "Project number or UUID"},
-					"step_id": {"type": "string", "description": "Step slug/ID"},
-					"blocker_id": {"type": "string", "description": "Blocker slug/ID"}
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"},
+					"step_id": {"type": "string", "description": "Step slug/ID (see id in list_steps)"},
+					"blocker_id": {"type": "string", "description": "Blocker slug/ID (see blocker_ids in list_steps or blockers in get_step)"}
 				},
 				"required": ["project_id", "step_id", "blocker_id"]
 			}`),
@@ -147,11 +147,11 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "add_decision",
-			Description: "Record an architectural or project decision with rationale",
+			Description: "Record why something was decided. Read back with list_decisions; close_project writes its own Closed decision.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"project_id": {"type": "string", "description": "Project number or UUID"},
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"},
 					"title": {"type": "string", "description": "Decision title"},
 					"reason": {"type": "string", "description": "Rationale for the decision (optional)"}
 				},
@@ -161,7 +161,7 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "get_briefing",
-			Description: "Generate a daily project briefing with recommendations",
+			Description: "Daily briefing across projects: what changed, what is blocked, what to do next. For one project state use get_project instead.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -177,7 +177,7 @@ func RegisterPMTools(s *Server, st store.Store) {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"project_id": {"type": "string", "description": "Project number or UUID"}
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"}
 				},
 				"required": ["project_id"]
 			}`),
@@ -185,12 +185,12 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "list_blockers",
-			Description: "List blockers in a project, grouped by step. Pass step_id to narrow to one step.",
+			Description: "List unresolved blockers grouped by step, with reasons. Pass step_id for one step. Cheap counterpart: list_steps shows blocker_ids; full counterpart: get_step.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"project_id": {"type": "string", "description": "Project number or UUID"},
-					"step_id": {"type": "string", "description": "Step slug/ID to narrow to (optional)"}
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"},
+					"step_id": {"type": "string", "description": "Step slug/ID to narrow to, see id in list_steps (optional)"}
 				},
 				"required": ["project_id"]
 			}`),
@@ -198,11 +198,11 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "list_decisions",
-			Description: "List all decisions recorded in a project",
+			Description: "List a project's recorded decisions. To record one use add_decision.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"project_id": {"type": "string", "description": "Project number or UUID"}
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"}
 				},
 				"required": ["project_id"]
 			}`),
@@ -214,7 +214,7 @@ func RegisterPMTools(s *Server, st store.Store) {
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"project_id": {"type": "string", "description": "Project number or UUID"},
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"},
 					"reason": {"type": "string", "description": "Why it is closed, recorded as a decision. Required when confirm is true."},
 					"confirm": {"type": "boolean", "description": "Consent flag. Omit or false to receive a plan without closing anything. Set true only after a human agreed to the plan."}
 				},
@@ -224,11 +224,11 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "delete_project",
-			Description: "Move a project to trash (recoverable via trash restore). For finished work prefer close_project.",
+			Description: "Move a project to trash (recoverable via trash_restore). For finished work prefer close_project, which records why.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
-					"project_id": {"type": "string", "description": "Project number or UUID"}
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"}
 				},
 				"required": ["project_id"]
 			}`),
@@ -236,7 +236,7 @@ func RegisterPMTools(s *Server, st store.Store) {
 		},
 		{
 			Name:        "trash_list",
-			Description: "List trashed projects with their trash names, numbers, titles and deletion time. There is no permanent-delete tool here on purpose: erasing is CLI-only (trash clean).",
+			Description: "List trashed projects with names, numbers and deletion time. Restore with trash_restore; no wipe tool exists here on purpose, erasing is CLI-only.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {}
