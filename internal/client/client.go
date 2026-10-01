@@ -299,8 +299,8 @@ func (c *Client) DeleteDecision(ref, dec string) error {
 
 // --- trash ---
 
-func (c *Client) TrashList() ([]string, error) {
-	var out []string
+func (c *Client) TrashList() ([]types.TrashItem, error) {
+	var out []types.TrashItem
 	err := c.do("GET", "/api/trash", nil, &out)
 	return out, err
 }

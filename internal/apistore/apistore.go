@@ -197,7 +197,7 @@ func (s *Store) ClosePlan(ref string) (*types.ClosePlan, error) {
 	return s.c.ClosePlan(ref)
 }
 
-func (s *Store) TrashList() ([]string, error) {
+func (s *Store) TrashList() ([]types.TrashItem, error) {
 	return s.c.TrashList()
 }
 
