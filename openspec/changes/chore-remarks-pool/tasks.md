@@ -28,9 +28,15 @@
   Claim про скрытые файлы опровергнут: точка не может появиться в выводе.
 - [ ] P8 Модуль не раздает PM_API
   **Moved:** ченж fix-env-doctor (смена listenAddr роняет клиентов)
-- [ ] P9 MCP: нет пагинации
-  **Moved:** ченж feat-mcp-paging-briefing get_project, string ID не поддерживаются
+- [x] P9 MCP: нет пагинации
+  **Done:** исходный ченж feat-mcp-paging-briefing закрыт как superseded и разложен.
+  Пагинация оказалась неверной рамкой: замер показал дамп 2 195 B, листать нечего.
+  Вместо нее feat-mcp-bounded-reads, PR #27: три размера чтения (сводка 429 B,
+  краткий список, get_step), detail:true как escape hatch. String ID вынесен
+  отдельно: коммит c8c938f, ID стал json.RawMessage с эхом байт-в-байт.
 - [ ] P10 Doctor локальный
   **Moved:** ченж fix-env-doctor PM_DIR vs путь демона (расщепление не покрыто)
-- [ ] P11 Briefing вообще без спеки
-  **Moved:** ченж feat-mcp-paging-briefing (capability файл отсутствует)
+- [x] P11 Briefing вообще без спеки
+  **Done:** ченж chore-briefing-spec, PR #26. Capability briefing: 8 требований,
+  14 сценариев, все доказаны тестами. По пути найден баг: нечитаемая date
+  откатывала вычисление, но оставляла мусор в ответе.
