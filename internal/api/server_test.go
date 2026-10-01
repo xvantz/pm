@@ -285,6 +285,32 @@ func TestStepCreate_DuplicateSlugConflicts(t *testing.T) {
 	}
 }
 
+func TestDoctorEndpoint(t *testing.T) {
+	srv := newTestServer(t)
+	createProject(t, srv, "Checkup")
+
+	w := doReq(t, srv, "GET", "/api/doctor", nil, testToken)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /api/doctor: code = %d, body = %s", w.Code, w.Body.String())
+	}
+	var rep types.DoctorReport
+	if err := json.NewDecoder(w.Body).Decode(&rep); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(rep.Projects) != 1 {
+		t.Errorf("projects = %d, want 1", len(rep.Projects))
+	}
+	if rep.Root == "" {
+		t.Error("report carries no root")
+	}
+
+	// No auth, no report.
+	w = doReq(t, srv, "GET", "/api/doctor", nil, "")
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("unauthenticated doctor: code = %d, want 401", w.Code)
+	}
+}
+
 func TestProjectClose(t *testing.T) {
 	srv := newTestServer(t)
 	createProject(t, srv, "Closer")

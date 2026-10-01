@@ -209,6 +209,13 @@ func (s *Store) TrashClean() error {
 	return s.c.TrashClean()
 }
 
+// Check asks the daemon for its integrity verdict. There is deliberately no
+// local file walk here: the daemon is the single reader, and a second reader
+// beside it is the divergence this change removes.
+func (s *Store) Check() (*types.DoctorReport, error) {
+	return s.c.Doctor()
+}
+
 func (s *Store) DeleteStep(projectID, stepID string) error {
 	return s.c.DeleteStep(projectID, stepID)
 }

@@ -313,6 +313,17 @@ func (c *Client) TrashClean() error {
 	return c.do("DELETE", "/api/trash", nil, nil)
 }
 
+// Doctor fetches the integrity verdict from the daemon. An unreachable
+// daemon is an error naming it: there is no local fallback scan, fixing the
+// daemon is the answer.
+func (c *Client) Doctor() (*types.DoctorReport, error) {
+	var out types.DoctorReport
+	if err := c.do("GET", "/api/doctor", nil, &out); err != nil {
+		return nil, fmt.Errorf("daemon unreachable: %w (fix the daemon - no local check exists)", err)
+	}
+	return &out, nil
+}
+
 // --- briefing ---
 
 func (c *Client) Briefing(date, project string) (*briefing.Briefing, error) {

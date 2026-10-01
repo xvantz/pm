@@ -718,6 +718,115 @@ func (s *FileStore) TrashClean() error {
 	return os.RemoveAll(trashDir)
 }
 
+// Check walks the store root and reports integrity. Read-only: it never
+// writes, so a check cannot be the thing that corrupts the store.
+//
+// This used to live in the CLI, which walked whatever PM_DIR pointed at
+// while the daemon served something else. Now the single writer walks its
+// own root and every caller reads one verdict.
+func (s *FileStore) Check() (*types.DoctorReport, error) {
+	root := s.root
+	if info, err := os.Stat(root); err != nil || !info.IsDir() {
+		return nil, fmt.Errorf("store not found: %s (run pm init)", root)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, fmt.Errorf("read store root: %w", err)
+	}
+
+	rep := &types.DoctorReport{Root: root}
+	known := map[string]bool{".trash": true, "_meta": true}
+	countStamps := func(rep *types.DoctorReport, stamps ...types.Timestamp) {
+		for _, ts := range stamps {
+			switch _, invalid := ts.Invalid(); {
+			case invalid:
+				rep.BrokenTimestamps++
+			case ts.IsLegacy():
+				rep.LegacyTimestamps++
+			}
+		}
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() || known[e.Name()] {
+			continue
+		}
+		projDir := filepath.Join(root, e.Name())
+		projectFile := filepath.Join(projDir, "project.yaml")
+		if _, err := os.Stat(projectFile); os.IsNotExist(err) {
+			rep.Orphans = append(rep.Orphans, e.Name())
+			continue
+		}
+		data, err := os.ReadFile(projectFile)
+		if err != nil {
+			rep.Issues = append(rep.Issues, fmt.Sprintf("%s: read error: %v", e.Name(), err))
+			continue
+		}
+		var p types.Project
+		if err := yaml.Unmarshal(data, &p); err != nil {
+			rep.Issues = append(rep.Issues, fmt.Sprintf("%s: YAML parse error: %v", e.Name(), err))
+			continue
+		}
+		line := types.DoctorProjectLine{Number: p.Number, Title: p.Title, ID: p.ID}
+		countStamps(rep, p.CreatedAt, p.UpdatedAt, p.CompletedAt)
+
+		if stepEntries, err := os.ReadDir(filepath.Join(projDir, "steps")); err == nil {
+			for _, se := range stepEntries {
+				if se.IsDir() || filepath.Ext(se.Name()) != ".yaml" {
+					continue
+				}
+				stepData, err := os.ReadFile(filepath.Join(projDir, "steps", se.Name()))
+				if err != nil {
+					rep.Issues = append(rep.Issues, fmt.Sprintf("%s step %s: read error: %v", e.Name(), se.Name(), err))
+					continue
+				}
+				var step types.Step
+				if err := yaml.Unmarshal(stepData, &step); err != nil {
+					rep.Issues = append(rep.Issues, fmt.Sprintf("%s step %s: YAML parse error: %v", e.Name(), se.Name(), err))
+					continue
+				}
+				countStamps(rep, step.CreatedAt, step.UpdatedAt)
+				for _, bl := range step.Blockers {
+					countStamps(rep, bl.CreatedAt, bl.UpdatedAt)
+				}
+				if step.ProjectID != p.ID {
+					rep.Issues = append(rep.Issues, fmt.Sprintf("%s step %s: project_id mismatch (%s != %s)", e.Name(), se.Name(), step.ProjectID, p.ID))
+				}
+				line.Steps++
+				line.Blockers += len(step.Blockers)
+			}
+		}
+		rep.TotalSteps += line.Steps
+		rep.TotalBlockers += line.Blockers
+
+		if decEntries, err := os.ReadDir(filepath.Join(projDir, "decisions")); err == nil {
+			for _, de := range decEntries {
+				if de.IsDir() || filepath.Ext(de.Name()) != ".yaml" {
+					continue
+				}
+				decData, err := os.ReadFile(filepath.Join(projDir, "decisions", de.Name()))
+				if err != nil {
+					rep.Issues = append(rep.Issues, fmt.Sprintf("%s decision %s: read error: %v", e.Name(), de.Name(), err))
+					continue
+				}
+				var dec types.Decision
+				if err := yaml.Unmarshal(decData, &dec); err != nil {
+					rep.Issues = append(rep.Issues, fmt.Sprintf("%s decision %s: YAML parse error: %v", e.Name(), de.Name(), err))
+					continue
+				}
+				countStamps(rep, dec.Date)
+				if dec.ProjectID != p.ID {
+					rep.Issues = append(rep.Issues, fmt.Sprintf("%s decision %s: project_id mismatch (%s != %s)", e.Name(), de.Name(), dec.ProjectID, p.ID))
+				}
+				line.Decisions++
+			}
+		}
+		rep.TotalDecisions += line.Decisions
+		rep.Projects = append(rep.Projects, line)
+	}
+	return rep, nil
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------

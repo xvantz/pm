@@ -59,6 +59,7 @@ func New(st store.Store, token string) *Server {
 	s.mux.HandleFunc("GET /api/briefing", s.auth(s.handleBriefing))
 	s.mux.HandleFunc("GET /api/trash", s.auth(s.handleTrashList))
 	s.mux.HandleFunc("POST /api/trash/{name}/restore", s.auth(s.handleTrashRestore))
+	s.mux.HandleFunc("GET /api/doctor", s.auth(s.handleDoctor))
 	s.mux.HandleFunc("DELETE /api/trash", s.auth(s.handleTrashClean))
 	return s
 }
@@ -733,4 +734,19 @@ func (s *Server) handleTrashClean(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"cleaned": "trash"})
+}
+
+// handleDoctor answers the integrity verdict over the daemon's own store.
+// The CLI prints it instead of walking files itself: one reader means no
+// divergence between what the human checks and what the daemon serves.
+func (s *Server) handleDoctor(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rep, err := s.store.Check()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rep)
 }
