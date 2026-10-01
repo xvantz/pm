@@ -15,6 +15,12 @@ import (
 	"github.com/xvantz/pm/internal/types"
 )
 
+// badArgs keeps a malformed call actionable: it echoes what was wrong and
+// which keys the tool needs, so the fix costs no discovery call.
+func badArgs(err error, need string) error {
+	return fmt.Errorf("invalid args: %v. Need: %s", err, need)
+}
+
 // RegisterPMTools registers all PM MCP tools on the server.
 func RegisterPMTools(s *Server, st store.Store) {
 	tools := []Tool{
@@ -342,6 +348,33 @@ func handleListProjects(st store.Store, ctx context.Context, args json.RawMessag
 	return string(data), nil
 }
 
+// jsonStepDetail is the get_step answer: the full step plus a hint naming
+// the next call for its state, so the detail level routes like the summary.
+type jsonStepDetail struct {
+	types.Step
+	Hint string `json:"hint"`
+}
+
+// stepHint routes from a step's state: blocked steps name the clearing call,
+// plain steps name the next lifecycle call.
+func stepHint(projectRef string, s types.Step) string {
+	for _, b := range s.Blockers {
+		if b.Status == types.BlockerActive || b.Status == types.BlockerWaiting {
+			return fmt.Sprintf("Step is blocked. Next: resolve_blocker {project_id: %q, step_id: %q, blocker_id: \"...\"} to clear; causes are in blockers above.", projectRef, s.ID)
+		}
+	}
+	switch s.Status {
+	case types.StepTodo:
+		return fmt.Sprintf("Next: start_step {project_id: %q, step_id: %q} to begin work.", projectRef, s.ID)
+	case types.StepInProgress:
+		return fmt.Sprintf("Next: review_step {project_id: %q, step_id: %q} when work is done.", projectRef, s.ID)
+	case types.StepReview:
+		return fmt.Sprintf("Next: done_step {project_id: %q, step_id: %q} after human approval.", projectRef, s.ID)
+	default:
+		return fmt.Sprintf("Step is done. Next: get_project {project_id: %q} to see what remains.", projectRef)
+	}
+}
+
 // jsonProjectSummary is the default get_project answer: enough to answer
 // "where does this stand" without paying for every field of every step.
 //
@@ -410,11 +443,11 @@ func buildProjectSummary(pd types.ProjectData) jsonProjectSummary {
 
 	switch {
 	case s.BlockersActive > 0:
-		s.Hint = fmt.Sprintf("%d unresolved blocker(s): pm list_blockers %d, or pm blocker resolve.", s.BlockersActive, s.Number)
+		s.Hint = fmt.Sprintf("%d unresolved blocker(s). Next: list_blockers {project_id: %d} for reasons, resolve_blocker to clear.", s.BlockersActive, s.Number)
 	case s.StepsDone < s.StepsTotal:
-		s.Hint = fmt.Sprintf("%d of %d steps open: pm list_steps %d to see which.", s.StepsTotal-s.StepsDone, s.StepsTotal, s.Number)
+		s.Hint = fmt.Sprintf("%d of %d steps open. Next: list_steps {project_id: %d} to see which.", s.StepsTotal-s.StepsDone, s.StepsTotal, s.Number)
 	default:
-		s.Hint = fmt.Sprintf("All %d steps done: pm project close %d \"<reason>\" when you are ready.", s.StepsTotal, s.Number)
+		s.Hint = fmt.Sprintf("All %d steps done. Next: close_project {project_id: %d, confirm: true, reason: \"...\"} when the human agrees.", s.StepsTotal, s.Number)
 	}
 	return s
 }
@@ -425,12 +458,12 @@ func handleGetProject(st store.Store, ctx context.Context, args json.RawMessage)
 		Detail    bool   `json:"detail,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{project_id}")
 	}
 
 	pd, err := st.ResolveProject(params.ProjectID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w. See list_projects for live numbers", err)
 	}
 
 	var payload any
@@ -463,11 +496,11 @@ func handleListSteps(st store.Store, ctx context.Context, args json.RawMessage) 
 		ProjectID string `json:"project_id"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{project_id}")
 	}
 	pd, err := st.ResolveProject(params.ProjectID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w. See list_projects for live numbers", err)
 	}
 	items := make([]jsonStepBrief, 0, len(pd.Steps))
 	for _, st := range pd.Steps {
@@ -498,27 +531,27 @@ func handleGetStep(st store.Store, ctx context.Context, args json.RawMessage) (s
 		StepID    string `json:"step_id"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{project_id, step_id}")
 	}
 	if params.StepID == "" {
-		return "", fmt.Errorf("step_id is required")
+		return "", fmt.Errorf("step_id is required. See list_steps {project_id: %q} for live ids", params.ProjectID)
 	}
 	pd, err := st.ResolveProject(params.ProjectID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w. See list_projects for live numbers", err)
 	}
 	for _, st := range pd.Steps {
 		if st.ID != params.StepID {
 			continue
 		}
-		data, err := json.Marshal(st)
+		data, err := json.Marshal(jsonStepDetail{Step: st, Hint: stepHint(params.ProjectID, st)})
 		if err != nil {
 			return "", fmt.Errorf("marshal response: %w", err)
 		}
 		return string(data), nil
 	}
 	// Name both, so a cross-project mistake is obvious from the error alone.
-	return "", fmt.Errorf("step %q not found in project #%d", params.StepID, pd.Project.Number)
+	return "", fmt.Errorf("step %q not found in project #%d. See list_steps {project_id: %q} for live ids", params.StepID, pd.Project.Number, params.ProjectID)
 }
 
 func handleAddProject(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
@@ -528,7 +561,7 @@ func handleAddProject(st store.Store, ctx context.Context, args json.RawMessage)
 		Tags  []string `json:"tags,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{title}")
 	}
 	if params.Title == "" {
 		return "", fmt.Errorf("title is required")
@@ -569,7 +602,7 @@ func handleAddProject(st store.Store, ctx context.Context, args json.RawMessage)
 		return "", fmt.Errorf("save project: %w", err)
 	}
 
-	return fmt.Sprintf("Project #%d %q created.\nID: %s\n\nNext: pm add step %d \"...\"",
+	return fmt.Sprintf("Project #%d %q created.\nID: %s\n\nNext: add_step {project_id: %d} to add the first step",
 		p.Number, p.Title, p.ID, p.Number), nil
 }
 
@@ -579,23 +612,23 @@ func handleAddStep(st store.Store, ctx context.Context, args json.RawMessage) (s
 		Title     string `json:"title"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{project_id, title}")
 	}
 
 	pd, err := st.ResolveProject(params.ProjectID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w. See list_projects for live numbers", err)
 	}
 
 	id := slug.Of(params.Title)
 	if id == "" {
-		return "", fmt.Errorf("invalid step title: %q", params.Title)
+		return "", fmt.Errorf("invalid step title %q: it slugifies to empty; use letters or digits", params.Title)
 	}
 
 	// Check for duplicate
 	for _, s := range pd.Steps {
 		if s.ID == id {
-			return "", fmt.Errorf("step %q already exists in project #%d", id, pd.Project.Number)
+			return "", fmt.Errorf("step %q already exists in project #%d; reuse it or pick another title", id, pd.Project.Number)
 		}
 	}
 
@@ -616,7 +649,7 @@ func handleAddStep(st store.Store, ctx context.Context, args json.RawMessage) (s
 		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
 	}
 
-	return fmt.Sprintf("Step %q added to project #%d.\nStatus: todo\n\nNext: pm step start %d %s",
+	return fmt.Sprintf("Step %q added to project #%d.\nStatus: todo\n\nNext: start_step {project_id: %d, step_id: %q} to begin work",
 		id, pd.Project.Number, pd.Project.Number, id), nil
 }
 
@@ -626,7 +659,7 @@ func handleStartStep(st store.Store, ctx context.Context, args json.RawMessage) 
 		StepID    string `json:"step_id"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{project_id, step_id}")
 	}
 
 	result, err := advanceStep(st, params.ProjectID, params.StepID, types.StepInProgress,
@@ -645,7 +678,7 @@ func handleReviewStep(st store.Store, ctx context.Context, args json.RawMessage)
 		StepID    string `json:"step_id"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{project_id, step_id}")
 	}
 
 	result, err := advanceStep(st, params.ProjectID, params.StepID, types.StepReview,
@@ -664,7 +697,7 @@ func handleDoneStep(st store.Store, ctx context.Context, args json.RawMessage) (
 		StepID    string `json:"step_id"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{project_id, step_id}")
 	}
 
 	result, err := advanceStep(st, params.ProjectID, params.StepID, types.StepDone,
@@ -681,13 +714,13 @@ func handleDoneStep(st store.Store, ctx context.Context, args json.RawMessage) (
 func advanceStep(st store.Store, projectRef, stepID string, newStatus types.StepStatus, validate func(types.Step) error) (string, error) {
 	pd, err := st.ResolveProject(projectRef)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w. See list_projects for live numbers", err)
 	}
 
 	for i, s := range pd.Steps {
 		if s.ID == stepID {
 			if err := validate(s); err != nil {
-				return "", err
+				return "", fmt.Errorf("%w (fix: move through start_step -> review_step -> done_step in order, or close_project to finish all)", err)
 			}
 
 			pd.Steps[i].Status = newStatus
@@ -703,11 +736,21 @@ func advanceStep(st store.Store, projectRef, stepID string, newStatus types.Step
 				slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
 			}
 
-			return fmt.Sprintf("Step %q → %s in project #%d.", stepID, newStatus, pd.Project.Number), nil
+			next := map[types.StepStatus]string{
+				types.StepInProgress: "review_step",
+				types.StepReview:     "done_step",
+			}[newStatus]
+			msg := fmt.Sprintf("Step %q → %s in project #%d.", stepID, newStatus, pd.Project.Number)
+			if next == "" {
+				msg += fmt.Sprintf(" Next: get_project {project_id: %q} to see what remains.", projectRef)
+			} else {
+				msg += fmt.Sprintf(" Next: %s {project_id: %q, step_id: %q}.", next, projectRef, stepID)
+			}
+			return msg, nil
 		}
 	}
 
-	return "", fmt.Errorf("step %q not found in project #%d", stepID, pd.Project.Number)
+	return "", fmt.Errorf("step %q not found in project #%d. See list_steps {project_id: %q} for live ids", stepID, pd.Project.Number, projectRef)
 }
 
 func handleAddBlocker(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
@@ -718,12 +761,12 @@ func handleAddBlocker(st store.Store, ctx context.Context, args json.RawMessage)
 		Reason    string `json:"reason,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{project_id, step_id, title}")
 	}
 
 	pd, err := st.ResolveProject(params.ProjectID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w. See list_projects for live numbers", err)
 	}
 
 	// Find the step
@@ -735,18 +778,18 @@ func handleAddBlocker(st store.Store, ctx context.Context, args json.RawMessage)
 		}
 	}
 	if targetStep == nil {
-		return "", fmt.Errorf("step %q not found in project #%d", params.StepID, pd.Project.Number)
+		return "", fmt.Errorf("step %q not found in project #%d. See list_steps {project_id: %q} for live ids", params.StepID, pd.Project.Number, params.ProjectID)
 	}
 
 	id := slug.Of(params.Title)
 	if id == "" {
-		return "", fmt.Errorf("invalid blocker title: %q", params.Title)
+		return "", fmt.Errorf("invalid blocker title %q: it slugifies to empty; use letters or digits", params.Title)
 	}
 
 	// Check duplicate
 	for _, b := range targetStep.Blockers {
 		if b.ID == id {
-			return "", fmt.Errorf("blocker %q already exists in step %q", id, params.StepID)
+			return "", fmt.Errorf("blocker %q already exists in step %q; reuse it or rename", id, params.StepID)
 		}
 	}
 
@@ -770,8 +813,8 @@ func handleAddBlocker(st store.Store, ctx context.Context, args json.RawMessage)
 		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
 	}
 
-	return fmt.Sprintf("Blocker %q added to step %q in project #%d.",
-		id, params.StepID, pd.Project.Number), nil
+	return fmt.Sprintf("Blocker %q added to step %q in project #%d (step is blocked).\n\nNext: resolve_blocker {project_id: %q, step_id: %q, blocker_id: %q} when cleared.",
+		id, params.StepID, pd.Project.Number, params.ProjectID, params.StepID, id), nil
 }
 
 func handleResolveBlocker(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
@@ -781,12 +824,12 @@ func handleResolveBlocker(st store.Store, ctx context.Context, args json.RawMess
 		BlockerID string `json:"blocker_id"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{project_id, step_id, blocker_id}")
 	}
 
 	pd, err := st.ResolveProject(params.ProjectID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w. See list_projects for live numbers", err)
 	}
 
 	stepIdx := -1
@@ -804,16 +847,16 @@ func handleResolveBlocker(st store.Store, ctx context.Context, args json.RawMess
 		}
 	}
 	if stepIdx == -1 {
-		return "", fmt.Errorf("step %q not found in project #%d", params.StepID, pd.Project.Number)
+		return "", fmt.Errorf("step %q not found in project #%d. See list_steps {project_id: %q} for live ids", params.StepID, pd.Project.Number, params.ProjectID)
 	}
 	if blockerIdx == -1 {
-		return "", fmt.Errorf("blocker %q not found in step %q", params.BlockerID, params.StepID)
+		return "", fmt.Errorf("blocker %q not found in step %q. See list_blockers {project_id: %q, step_id: %q} for live ids", params.BlockerID, params.StepID, params.ProjectID, params.StepID)
 	}
 
 	blocker := &pd.Steps[stepIdx].Blockers[blockerIdx]
 	if blocker.Status == types.BlockerResolved {
-		return fmt.Sprintf("Blocker %q is already resolved in step %q (project #%d).",
-			params.BlockerID, params.StepID, pd.Project.Number), nil
+		return fmt.Sprintf("Blocker %q is already resolved in step %q (project #%d, step is %s).\n\nNext: start_step {project_id: %q, step_id: %q} to move it forward.",
+			params.BlockerID, params.StepID, pd.Project.Number, pd.Steps[stepIdx].Status, params.ProjectID, params.StepID), nil
 	}
 
 	blocker.Status = types.BlockerResolved
@@ -843,8 +886,14 @@ func handleResolveBlocker(st store.Store, ctx context.Context, args json.RawMess
 		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
 	}
 
-	return fmt.Sprintf("Blocker %q resolved in step %q (project #%d).",
-		params.BlockerID, params.StepID, pd.Project.Number), nil
+	msg := fmt.Sprintf("Blocker %q resolved in step %q (project #%d).",
+		params.BlockerID, params.StepID, pd.Project.Number)
+	if stillBlocked {
+		msg += fmt.Sprintf(" Other blockers remain: list_blockers {project_id: %q, step_id: %q}.", params.ProjectID, params.StepID)
+	} else {
+		msg += fmt.Sprintf(" Step is unblocked (todo). Next: start_step {project_id: %q, step_id: %q}.", params.ProjectID, params.StepID)
+	}
+	return msg, nil
 }
 
 func handleAddDecision(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
@@ -854,23 +903,23 @@ func handleAddDecision(st store.Store, ctx context.Context, args json.RawMessage
 		Reason    string `json:"reason,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{project_id, title}")
 	}
 
 	pd, err := st.ResolveProject(params.ProjectID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w. See list_projects for live numbers", err)
 	}
 
 	id := slug.Of(params.Title)
 	if id == "" {
-		return "", fmt.Errorf("invalid decision title: %q", params.Title)
+		return "", fmt.Errorf("invalid decision title %q: it slugifies to empty; use letters or digits", params.Title)
 	}
 
 	// Check duplicate
 	for _, d := range pd.Decisions {
 		if d.ID == id {
-			return "", fmt.Errorf("decision %q already exists in project #%d", id, pd.Project.Number)
+			return "", fmt.Errorf("decision %q already exists in project #%d; reuse it or rename", id, pd.Project.Number)
 		}
 	}
 
@@ -890,7 +939,7 @@ func handleAddDecision(st store.Store, ctx context.Context, args json.RawMessage
 		slog.Warn("update project timestamp", "project", pd.Project.ID, "error", err)
 	}
 
-	return fmt.Sprintf("Decision %q recorded in project #%d.", id, pd.Project.Number), nil
+	return fmt.Sprintf("Decision %q recorded in project #%d. See list_decisions {project_id: %q}.", id, pd.Project.Number, params.ProjectID), nil
 }
 
 func handleGetBriefing(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
@@ -899,7 +948,7 @@ func handleGetBriefing(st store.Store, ctx context.Context, args json.RawMessage
 		ProjectID string `json:"project_id,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{date?, project_id?}")
 	}
 
 	select {
@@ -931,12 +980,12 @@ func handleListBlockers(st store.Store, ctx context.Context, args json.RawMessag
 		StepID    string `json:"step_id,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{project_id, step_id?}")
 	}
 
 	pd, err := st.ResolveProject(params.ProjectID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w. See list_projects for live numbers", err)
 	}
 
 	groups := make([]jsonBlockerGroup, 0)
@@ -964,7 +1013,7 @@ func handleListBlockers(st store.Store, ctx context.Context, args json.RawMessag
 		}
 	}
 	if params.StepID != "" && !foundStep {
-		return "", fmt.Errorf("step %q not found in project #%d", params.StepID, pd.Project.Number)
+		return "", fmt.Errorf("step %q not found in project #%d. See list_steps {project_id: %q} for live ids", params.StepID, pd.Project.Number, params.ProjectID)
 	}
 
 	data, err := json.Marshal(map[string]any{
@@ -983,12 +1032,12 @@ func handleListDecisions(st store.Store, ctx context.Context, args json.RawMessa
 		ProjectID string `json:"project_id"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{project_id}")
 	}
 
 	pd, err := st.ResolveProject(params.ProjectID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w. See list_projects for live numbers", err)
 	}
 
 	decisions := pd.Decisions
@@ -1020,14 +1069,17 @@ func handleCloseProject(st store.Store, ctx context.Context, args json.RawMessag
 		Confirm   bool   `json:"confirm,omitempty"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{project_id, reason?, confirm?}")
 	}
 	if params.ProjectID == "" {
-		return "", fmt.Errorf("project_id is required")
+		return "", fmt.Errorf("project_id is required. See list_projects for numbers")
 	}
 
 	plan, err := st.CloseProject(params.ProjectID, params.Reason, params.Confirm)
 	if err != nil {
+		if strings.Contains(err.Error(), "reason is required") {
+			return "", fmt.Errorf("%w. Call close_project again with confirm: true and reason after the human agrees to the plan", err)
+		}
 		return "", err
 	}
 
@@ -1040,9 +1092,9 @@ func handleCloseProject(st store.Store, ctx context.Context, args json.RawMessag
 
 	pd, err := st.ResolveProject(params.ProjectID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w. See list_projects for live numbers", err)
 	}
-	return fmt.Sprintf("Project #%d %q closed (%s). %d step(s) moved to done.",
+	return fmt.Sprintf("Project #%d %q closed (%s). %d step(s) moved to done. Recorded as a Closed decision.",
 		pd.Project.Number, pd.Project.Title, params.Reason, plan.StepsToClose()), nil
 }
 
@@ -1090,16 +1142,16 @@ func handleDeleteProject(st store.Store, ctx context.Context, args json.RawMessa
 		ProjectID string `json:"project_id"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{project_id}")
 	}
 	pd, err := st.ResolveProject(params.ProjectID)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w. See list_projects for live numbers", err)
 	}
 	if err := st.DeleteProject(pd.Project.ID); err != nil {
 		return "", fmt.Errorf("delete project: %w", err)
 	}
-	return fmt.Sprintf("Project #%d %q moved to trash.", pd.Project.Number, pd.Project.Title), nil
+	return fmt.Sprintf("Project #%d %q moved to trash.\n\nUndo: trash_list to find it, trash_restore to bring it back.", pd.Project.Number, pd.Project.Title), nil
 }
 
 // handleTrashList renders the trash for an agent to act on: every entry
@@ -1133,7 +1185,7 @@ func handleTrashRestore(st store.Store, ctx context.Context, args json.RawMessag
 		Target string `json:"target"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
+		return "", badArgs(err, "{target}")
 	}
 	if strings.TrimSpace(params.Target) == "" {
 		return "", fmt.Errorf("target is required: pass a trash name, project number or title from trash_list")
@@ -1141,5 +1193,11 @@ func handleTrashRestore(st store.Store, ctx context.Context, args json.RawMessag
 	if err := st.TrashRestore(params.Target); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Restored %q from trash.", params.Target), nil
+	msg := fmt.Sprintf("Restored %q from trash.", params.Target)
+	if pd, err := st.ResolveProject(params.Target); err == nil {
+		msg += fmt.Sprintf(" Next: get_project {project_id: %d} to verify.", pd.Project.Number)
+	} else {
+		msg += " Verify with list_projects, then get_project."
+	}
+	return msg, nil
 }
