@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -27,7 +28,101 @@ type FileStore struct {
 const (
 	metaDir     = "_meta"
 	nextNumFile = "next_number"
+	backupsDir  = "backups"
 )
+
+// maxBackupRuns bounds _meta/backups: each deletion starts one run dir, and
+// only the newest runs are kept. Twenty runs cover a long mistake tail
+// without letting the store grow without bound.
+const maxBackupRuns = 20
+
+// backupRunDir ensures _meta/backups/<unixnano>/ exists and returns it.
+// Nanosecond resolution keeps rapid successive deletes in separate runs so
+// rotation actually counts deletions, not wall-clock seconds.
+func (s *FileStore) backupRunDir() (string, error) {
+	dir := filepath.Join(s.root, metaDir, backupsDir,
+		strconv.FormatInt(time.Now().UnixNano(), 10))
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("create backup run dir: %w", err)
+	}
+	return dir, nil
+}
+
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0644)
+}
+
+// backupProjectDir copies a whole live project tree into the backup run.
+// It copies what is being removed byte-for-byte, so a later human can put
+// the files back by hand.
+func (s *FileStore) backupProjectDir(id, runDir string) error {
+	src := s.projectDir(id)
+	dst := filepath.Join(runDir, id)
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		return copyFile(path, filepath.Join(dst, rel))
+	})
+}
+
+// pruneBackups drops all but the newest maxBackupRuns runs. Best effort: a
+// rotation failure must not fail the delete it trails, so errors are logged
+// and swallowed.
+func (s *FileStore) pruneBackups() {
+	root := filepath.Join(s.root, metaDir, backupsDir)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	if len(entries) <= maxBackupRuns {
+		return
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names)
+	for _, n := range names[:len(names)-maxBackupRuns] {
+		if err := os.RemoveAll(filepath.Join(root, n)); err != nil {
+			slog.Warn("prune backups", "run", n, "error", err)
+		}
+	}
+}
+
+// backupBeforeDelete snapshots one file about to be removed or rewritten.
+// A backup WRITE failure fails the delete: if the disk cannot take the copy,
+// proceeding would destroy data with no way back.
+func (s *FileStore) backupBeforeDelete(projectID, relPath string) error {
+	runDir, err := s.backupRunDir()
+	if err != nil {
+		return err
+	}
+	src := filepath.Join(s.projectDir(projectID), relPath)
+	if _, err := os.Stat(src); err != nil {
+		return fmt.Errorf("backup source %s: %w", relPath, err)
+	}
+	if err := copyFile(src, filepath.Join(runDir, projectID, relPath)); err != nil {
+		return fmt.Errorf("backup %s: %w", relPath, err)
+	}
+	return nil
+}
 
 func NewFileStore(root string) *FileStore {
 	return &FileStore{root: root}
@@ -380,6 +475,17 @@ func (s *FileStore) DeleteProject(id string) error {
 		return fmt.Errorf("create trash: %w", err)
 	}
 
+	// Snapshot first: the rename below is the point of no return, and a
+	// failed backup must stop the delete rather than let data go unrecorded.
+	runDir, err := s.backupRunDir()
+	if err != nil {
+		return err
+	}
+	if err := s.backupProjectDir(id, runDir); err != nil {
+		return fmt.Errorf("backup project before delete: %w", err)
+	}
+	defer s.pruneBackups()
+
 	src := s.projectDir(id)
 	dst := filepath.Join(trashDir, fmt.Sprintf("%s-%d", id, time.Now().Unix()))
 	return os.Rename(src, dst)
@@ -391,6 +497,11 @@ func (s *FileStore) DeleteStep(projectID, stepID string) error {
 		return err
 	}
 	defer unlock()
+
+	if err := s.backupBeforeDelete(projectID, filepath.Join("steps", stepID+".yaml")); err != nil {
+		return err
+	}
+	defer s.pruneBackups()
 
 	if err := os.Remove(filepath.Join(s.stepsDir(projectID), stepID+".yaml")); err != nil {
 		return err
@@ -414,6 +525,10 @@ func (s *FileStore) DeleteBlocker(projectID, stepID, blockerID string) error {
 		if st.ID == stepID {
 			for j, b := range st.Blockers {
 				if b.ID == blockerID {
+					if err := s.backupBeforeDelete(projectID, filepath.Join("steps", stepID+".yaml")); err != nil {
+						return err
+					}
+					defer s.pruneBackups()
 					steps[i].Blockers = append(st.Blockers[:j], st.Blockers[j+1:]...)
 					if !domain.HasUnresolvedBlockers(steps[i].Blockers) {
 						steps[i].Status = types.StepTodo
@@ -458,6 +573,11 @@ func (s *FileStore) DeleteDecision(projectID, decisionID string) error {
 	}
 	defer unlock()
 
+	if err := s.backupBeforeDelete(projectID, filepath.Join("decisions", decisionID+".yaml")); err != nil {
+		return err
+	}
+	defer s.pruneBackups()
+
 	if err := os.Remove(filepath.Join(s.decisionsDir(projectID), decisionID+".yaml")); err != nil {
 		return err
 	}
@@ -465,7 +585,21 @@ func (s *FileStore) DeleteDecision(projectID, decisionID string) error {
 	return nil
 }
 
-func (s *FileStore) TrashList() ([]string, error) {
+// splitTrashName separates `<project-id>-<unix-timestamp>`. The id itself
+// contains dashes (UUID), so the timestamp is the part after the LAST dash.
+func splitTrashName(trashName string) (projectID string, deletedAt time.Time, ok bool) {
+	idx := strings.LastIndex(trashName, "-")
+	if idx < 1 {
+		return "", time.Time{}, false
+	}
+	ts, err := strconv.ParseInt(trashName[idx+1:], 10, 64)
+	if err != nil {
+		return "", time.Time{}, false
+	}
+	return trashName[:idx], time.Unix(ts, 0).UTC(), true
+}
+
+func (s *FileStore) TrashList() ([]types.TrashItem, error) {
 	trashDir := filepath.Join(s.root, ".trash")
 	entries, err := os.ReadDir(trashDir)
 	if err != nil {
@@ -474,33 +608,108 @@ func (s *FileStore) TrashList() ([]string, error) {
 		}
 		return nil, err
 	}
-	names := make([]string, 0, len(entries))
+	items := make([]types.TrashItem, 0, len(entries))
 	for _, e := range entries {
-		names = append(names, e.Name())
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		projectID, deletedAt, ok := splitTrashName(name)
+		if !ok {
+			continue
+		}
+		item := types.TrashItem{
+			TrashName: name,
+			ProjectID: projectID,
+			DeletedAt: types.NewTimestamp(deletedAt),
+		}
+		// Best effort: a trashed project.yaml carries number and title.
+		// An unreadable one stays listable and restorable by trash name.
+		// Note: the trash entry dir holds project.yaml directly, so the
+		// trash dir is the root and the entry name is the id here.
+		if p, err := readProjectFile(trashDir, name); err == nil {
+			item.Number = p.Number
+			item.Title = p.Title
+		} else {
+			slog.Warn("trash item unreadable", "trash", name, "error", err)
+		}
+		items = append(items, item)
 	}
-	return names, nil
+	return items, nil
 }
 
-func (s *FileStore) TrashRestore(trashName string) error {
+func (s *FileStore) TrashRestore(ref string) error {
 	trashDir := filepath.Join(s.root, ".trash")
-	src := filepath.Join(trashDir, trashName)
-	info, err := os.Stat(src)
+	items, err := s.TrashList()
 	if err != nil {
-		return fmt.Errorf("trash item %q not found: %w", trashName, err)
+		return err
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("trash item %q is not a directory", trashName)
+	if len(items) == 0 {
+		return fmt.Errorf("trash item %q not found: trash is empty (run trash list)", ref)
 	}
 
-	// Extract original project ID from the trash name format <id>-<timestamp>
-	parts := strings.Split(trashName, "-")
-	if len(parts) < 2 {
-		return fmt.Errorf("invalid trash name format: %q", trashName)
+	// Exact trash name always wins: it is unambiguous by construction.
+	for _, it := range items {
+		if it.TrashName == ref {
+			return s.restoreTrashItem(trashDir, it)
+		}
 	}
-	// Project ID is everything except the last part (timestamp)
-	projectID := strings.Join(parts[:len(parts)-1], "-")
 
-	dst := s.projectDir(projectID)
+	var candidates []types.TrashItem
+	if n, err := strconv.Atoi(strings.TrimSpace(ref)); err == nil {
+		for _, it := range items {
+			if it.Number == n {
+				candidates = append(candidates, it)
+			}
+		}
+	} else {
+		lower := strings.ToLower(strings.TrimSpace(ref))
+		for _, it := range items {
+			if strings.Contains(strings.ToLower(it.Title), lower) {
+				candidates = append(candidates, it)
+			}
+		}
+	}
+	switch len(candidates) {
+	case 0:
+		return fmt.Errorf("trash item %q not found: run trash list to see trash names", ref)
+	case 1:
+		return s.restoreTrashItem(trashDir, candidates[0])
+	default:
+		names := make([]string, 0, len(candidates))
+		for _, c := range candidates {
+			names = append(names, fmt.Sprintf("%s (#%d %q)", c.TrashName, c.Number, c.Title))
+		}
+		return fmt.Errorf("trash restore %q is ambiguous, %d candidates and nothing restored: %s",
+			ref, len(candidates), strings.Join(names, "; "))
+	}
+}
+
+// restoreTrashItem moves one trash dir back into the live tree. It refuses
+// rather than merges: if a live project already holds the number, or the
+// target dir exists, restoring would silently corrupt the live set.
+func (s *FileStore) restoreTrashItem(trashDir string, it types.TrashItem) error {
+	if it.Number != 0 {
+		live, err := s.ListProjects()
+		if err == nil {
+			for _, p := range live {
+				if p.Number == it.Number {
+					return fmt.Errorf("cannot restore %q: live project #%d %q already holds that number",
+						it.TrashName, p.Number, p.Title)
+				}
+			}
+		}
+	}
+	src := filepath.Join(trashDir, it.TrashName)
+	if info, err := os.Stat(src); err != nil {
+		return fmt.Errorf("trash item %q not found: %w", it.TrashName, err)
+	} else if !info.IsDir() {
+		return fmt.Errorf("trash item %q is not a directory", it.TrashName)
+	}
+	dst := s.projectDir(it.ProjectID)
+	if _, err := os.Stat(dst); err == nil {
+		return fmt.Errorf("cannot restore %q: live project dir %q already exists", it.TrashName, it.ProjectID)
+	}
 	return os.Rename(src, dst)
 }
 

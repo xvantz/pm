@@ -37,7 +37,11 @@ func cmdTrashList(args []string) error {
 	}
 	fmt.Println("Trash items:")
 	for _, item := range items {
-		fmt.Printf("  %s\n", item)
+		when := ""
+		if !item.DeletedAt.IsZero() {
+			when = item.DeletedAt.String()
+		}
+		fmt.Printf("  #%d %s (%s, deleted %s)\n", item.Number, item.Title, item.TrashName, when)
 	}
 	return nil
 }

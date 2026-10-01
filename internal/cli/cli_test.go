@@ -269,9 +269,15 @@ func TestTrash_RestoreClean(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("TrashList returned %d items, want 1", len(items))
 	}
+	if items[0].Title != "Trash Test" {
+		t.Errorf("TrashList item = #%d %q, want title Trash Test", items[0].Number, items[0].Title)
+	}
+	if items[0].TrashName == "" {
+		t.Error("TrashList item carries no trash name to restore by")
+	}
 
 	// Restore
-	if err := st.TrashRestore(items[0]); err != nil {
+	if err := st.TrashRestore(items[0].TrashName); err != nil {
 		t.Fatalf("TrashRestore() error = %v", err)
 	}
 

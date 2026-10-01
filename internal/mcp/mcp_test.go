@@ -619,6 +619,7 @@ func TestRegisterPMTools(t *testing.T) {
 		"get_briefing",
 		"list_steps", "list_blockers", "list_decisions",
 		"close_project", "delete_project",
+		"trash_list", "trash_restore",
 	}
 
 	if len(s.tools) != len(expected) {

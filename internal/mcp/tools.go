@@ -234,6 +234,27 @@ func RegisterPMTools(s *Server, st store.Store) {
 			}`),
 			Handler: makeHandler(st, handleDeleteProject),
 		},
+		{
+			Name:        "trash_list",
+			Description: "List trashed projects with their trash names, numbers, titles and deletion time. There is no permanent-delete tool here on purpose: erasing is CLI-only (trash clean).",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {}
+			}`),
+			Handler: makeHandler(st, handleTrashList),
+		},
+		{
+			Name:        "trash_restore",
+			Description: "Restore a trashed project by trash name, project number or title. Ambiguous matches fail with the candidate list instead of restoring; pass the exact trash name from trash_list to skip matching.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"target": {"type": "string", "description": "Trash name, project number or title from trash_list"}
+				},
+				"required": ["target"]
+			}`),
+			Handler: makeHandler(st, handleTrashRestore),
+		},
 	}
 
 	for _, t := range tools {
@@ -1079,4 +1100,46 @@ func handleDeleteProject(st store.Store, ctx context.Context, args json.RawMessa
 		return "", fmt.Errorf("delete project: %w", err)
 	}
 	return fmt.Sprintf("Project #%d %q moved to trash.", pd.Project.Number, pd.Project.Title), nil
+}
+
+// handleTrashList renders the trash for an agent to act on: every entry
+// carries the exact trash name the restore call needs, so there is no reason
+// to guess.
+func handleTrashList(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
+	items, err := st.TrashList()
+	if err != nil {
+		return "", err
+	}
+	if len(items) == 0 {
+		return "Trash is empty.", nil
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%d trashed project(s). Restore with trash_restore and the trash name.\n", len(items))
+	for _, it := range items {
+		when := ""
+		if !it.DeletedAt.IsZero() {
+			when = it.DeletedAt.String()
+		}
+		fmt.Fprintf(&sb, "  - #%d %q (trash: %s, deleted %s)\n", it.Number, it.Title, it.TrashName, when)
+	}
+	return sb.String(), nil
+}
+
+// handleTrashRestore passes the target straight to the store, which resolves
+// exact names, numbers and titles itself and fails loudly on ambiguity.
+// The store is the single place that knows the matching rules.
+func handleTrashRestore(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		Target string `json:"target"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "", fmt.Errorf("invalid args: %w", err)
+	}
+	if strings.TrimSpace(params.Target) == "" {
+		return "", fmt.Errorf("target is required: pass a trash name, project number or title from trash_list")
+	}
+	if err := st.TrashRestore(params.Target); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Restored %q from trash.", params.Target), nil
 }

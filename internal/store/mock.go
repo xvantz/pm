@@ -242,7 +242,7 @@ func (s *MockStore) ClosePlan(ref string) (*types.ClosePlan, error) {
 	return buildClosePlan(*pd), nil
 }
 
-func (m *MockStore) TrashList() ([]string, error) { return nil, nil }
+func (m *MockStore) TrashList() ([]types.TrashItem, error) { return nil, nil }
 
 func (m *MockStore) TrashRestore(trashName string) error {
 	return fmt.Errorf("not implemented in mock")

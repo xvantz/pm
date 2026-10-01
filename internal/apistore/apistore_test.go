@@ -172,7 +172,10 @@ func TestRemoteTrash(t *testing.T) {
 	if err != nil || len(names) != 1 {
 		t.Fatalf("TrashList = %v, %v", names, err)
 	}
-	if err := st.TrashRestore(names[0]); err != nil {
+	if names[0].Title != "T" {
+		t.Errorf("TrashList title = %q, want T", names[0].Title)
+	}
+	if err := st.TrashRestore(names[0].TrashName); err != nil {
 		t.Fatalf("TrashRestore error = %v", err)
 	}
 	if _, err := st.ResolveProject("1"); err != nil {

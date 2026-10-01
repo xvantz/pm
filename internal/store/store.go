@@ -45,8 +45,8 @@ type Store interface {
 	ClosePlan(projectID string) (*types.ClosePlan, error)
 	// DeleteProject moves a project to .trash.
 	DeleteProject(id string) error
-	// TrashList returns the names of items in the trash.
-	TrashList() ([]string, error)
+	// TrashList returns the trashed projects with usable identifiers.
+	TrashList() ([]types.TrashItem, error)
 	// TrashRestore restores a trashed project by its trash name.
 	TrashRestore(trashName string) error
 	// TrashClean permanently removes all trashed items.

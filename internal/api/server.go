@@ -707,7 +707,7 @@ func (s *Server) handleTrashList(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	if names == nil {
-		names = []string{}
+		names = []types.TrashItem{}
 	}
 	writeJSON(w, http.StatusOK, names)
 }

@@ -273,6 +273,31 @@ daemon cannot distinguish "the human agreed" from "the agent decided". This
 flow makes the agent show the plan; it does not prove a human read it. A real
 stop needs a confirmation only a human can issue.
 
+## Trash and backups
+
+Deleting a project moves it to `.trash`, never away. Both surfaces share it:
+
+```bash
+pm trash list                        # what is in the bin, with numbers and titles
+pm trash restore <name|number|title> # bring one back; ambiguous matches fail with candidates
+pm trash clean                       # erase forever. CLI only, never over MCP.
+```
+
+Agents get `trash_list` and `trash_restore` with the same rules. There is no
+`trash_clean` tool on purpose: an agent may bin things, only a human may shred
+them. The same split holds for close: MCP closes in two calls with consent,
+CLI closes in one.
+
+Every deletion - project, step, blocker, decision - also snapshots the exact
+bytes into `_meta/backups/<unix>/`, keeping the newest 20 runs. The trash
+covers projects; the backups cover everything else, because deleting a step
+has no undo button. Recovery from a backup is manual: copy the files back
+from the run directory (they sit under git, so `git log` shows what changed).
+
+Restore refuses instead of merging: if a live project already holds the
+number, or the target dir exists, the call fails with the reason and nothing
+moves.
+
 ## Timestamps
 
 Event times (`created_at`, `updated_at`, `completed_at`, decision `date`) are
