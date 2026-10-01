@@ -4,16 +4,21 @@
 
 ### Requirement: Doctor
 
-`pm doctor` SHALL verify storage integrity (projects dir exists, YAML parses, counter consistent) and print actionable repair hints (`pm init` when the store is missing).
+`pm doctor` SHALL ask the daemon for its integrity verdict (`GET /api/doctor`)
+and print it: counts, orphans, unreadable files and timestamp stats, plus
+actionable repair hints. There SHALL be no local file scan: the daemon is the
+single reader, so there is nothing to compare and nothing to diverge.
 
-It SHALL also split the verdict explicitly: the file half names the local root it checked (`PM_DIR`), the live half names the daemon address it probed (`PM_API`) and the data dir the daemon reports. When the two roots differ, doctor SHALL warn naming both sides instead of staying silent. When the daemon is unreachable the comparison is skipped, not failed: absence of a daemon is its own reported problem.
+When the daemon is unreachable, doctor SHALL fail with an error naming the
+daemon, not fall back to a local scan. A fallback would reintroduce the second
+reader this change removes. Fix the daemon.
 
 #### Scenario: Missing store
 
 - **WHEN** the user runs `pm doctor` with no storage directory present
-- **THEN** doctor reports the store as missing and suggests running `pm init`
+- **THEN** the daemon reports the store as missing and doctor suggests running `pm init`
 
-#### Scenario: Path divergence is loud
+#### Scenario: Daemon down is the verdict
 
-- **WHEN** `PM_DIR` points at `/a` while the daemon serves `/b`
-- **THEN** doctor prints both paths with a mismatch warning
+- **WHEN** the daemon is unreachable
+- **THEN** doctor fails naming the daemon and performs no local file scan

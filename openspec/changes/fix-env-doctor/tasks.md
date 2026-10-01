@@ -1,20 +1,28 @@
 # Tasks: fix-env-doctor
 
-## Phase 1: Демон и клиенты
+## Phase 1: Проверка едет в демона
 
-- [ ] 1.1 `GET /healthz` отдает `data_dir`; `client.Health` пробрасывает поле
-  **DoD:** тест: healthz JSON содержит `data_dir` с корнем стора; старые
-  клиенты (декод в `map[string]string`) не ломаются
-- [ ] 1.2 Doctor: печатает file-сторону и daemon-сторону, расхождение корней -
-  варнинг с обеими сторонами
-  **DoD:** тест с фикстурой: `PM_DIR=/a`, демон на `/b` - вывод содержит обе
-  стороны и слово mismatch; совпадение - варнинга нет
+- [ ] 1.1 `internal/types`: тип отчета (`DoctorReport`: счетчики, сироты,
+  битые файлы, legacy/битые метки)
+  **DoD:** `CGO_ENABLED=0 go build ./...` зелен; тип экспортирован
+- [ ] 1.2 `internal/store`: метод проверки в интерфейсе + переезд обхода из
+  `internal/cli/doctor.go` в `FileStore` (включая счетчик legacy/битых меток);
+  `MockStore` - пустой отчет
+  **DoD:** `CGO_ENABLED=0 go test ./internal/store/ -count=1` зелен; обход
+  файлов в `internal/cli/doctor.go` отсутствует (grep `ReadDir` пуст)
+- [ ] 1.3 `GET /api/doctor` + проброс `client`/`apistore`; `doctor_timestamp_test.go`
+  переписан под демон (FileStore напрямую + httptest)
+  **DoD:** `CGO_ENABLED=0 go test ./internal/api/ ./internal/cli/ ./internal/apistore/ -count=1` зелен
+- [ ] 1.4 `cmdDoctor`: звать демона и печатать отчет; `doctor_live.go`: демон
+  недоступен = ошибка без локального скана
+  **DoD:** тест: демон молчит - `cmdDoctor` возвращает ошибку про демона, а не
+  файловый отчет
 
 ## Phase 2: Nix и доки
 
 - [ ] 2.1 `flake.nix`: `PM_API` из `listenAddr` в sessionVariables + shellInit
-  **DoD:** `nix` парсит модуль без ошибок (`nix flake check` где возможно);
-  иначе построчный review диффа + rebuild на хосте как DoD 2.4
+  **DoD:** модуль парсится (`nix flake check` где возможно); иначе построчный
+  review + DoD 3.2 как доказательство
 - [ ] 2.2 Dotfiles `hermes.nix`: `env.PM_API` из `services.pm.listenAddr`
   **DoD:** хардкод `127.0.0.1:8472` в файле отсутствует (grep пуст);
   коммит отдельным PR в dotfiles
@@ -28,7 +36,7 @@
   **DoD:** все зелено, 0 failed
 - [ ] 3.2 Rebuild на хосте + smoke: смена listenAddr не роняет клиентов
   **DoD (владелец хоста):** `nixos-rebuild switch`, свежий шелл показывает
-  `PM_API` с новым адресом; `pm briefing` и MCP отвечают через новый адрес
+  `PM_API` с новым адресом; `pm doctor` зелен через новый адрес, MCP отвечает
 - [ ] 3.3 PR + CI + архив последним коммитом; P8/P10 пула в `[x]`
   **DoD:** Forgejo run success; `openspec list` без `fix-env-doctor`;
   baseline несет дельту
@@ -36,5 +44,5 @@
 ## Границы
 
 - `PM_TOKEN` в sessionVariables не кладем. Никогда.
-- Демон не валидирует адрес при старте; smoke - дело хоста.
-- `fix-event-time` границу не трогаем.
+- `pm init` не трогаем.
+- `fix-event-time` границу не трогаем: счетчик переезжает как есть.

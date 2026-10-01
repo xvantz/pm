@@ -34,18 +34,19 @@ so changing the address never orphans clients on the default.
 
 ## ADDED Requirements
 
-### Requirement: Daemon reports its data dir
+### Requirement: Daemon-side integrity check
 
-`GET /healthz` SHALL carry a `data_dir` field with the store root the daemon
-serves, alongside `status` and `version`. The field needs no auth, like the
-rest of healthz: a host path on a localhost daemon is not a secret. Existing
-clients decoding into string maps SHALL keep working.
+`GET /api/doctor` SHALL return an integrity report over the daemon's own
+store: project/step/blocker/decision counts, orphan dirs, unreadable files,
+and legacy/unreadable timestamp counts. It SHALL require auth like the rest
+of `/api`. The check runs inside the single writer, so it observes the same
+state every client sees.
 
-Rationale: without it, no caller can tell whether the files it checks
-(`PM_DIR`) are the files the daemon serves. Doctor's split verdict depends
-on this field.
+Rationale: a CLI-side file walk is a second reader beside the daemon, and
+the two can disagree about which root they checked. Moving the walk into the
+daemon removes the divergence class instead of instrumenting it.
 
-#### Scenario: health carries the dir
+#### Scenario: Healthy store reports counts
 
-- **WHEN** `GET /healthz` answers
-- **THEN** the body carries `status`, `version` and `data_dir`
+- **WHEN** `GET /api/doctor` answers on a healthy store
+- **THEN** the body carries the entity counts with empty issue lists
