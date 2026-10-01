@@ -31,3 +31,21 @@ so changing the address never orphans clients on the default.
 
 - **WHEN** `listenAddr` is changed from the default
 - **THEN** shells and MCP pick the new address from provisioned `PM_API` with no hand edits
+
+## ADDED Requirements
+
+### Requirement: Daemon reports its data dir
+
+`GET /healthz` SHALL carry a `data_dir` field with the store root the daemon
+serves, alongside `status` and `version`. The field needs no auth, like the
+rest of healthz: a host path on a localhost daemon is not a secret. Existing
+clients decoding into string maps SHALL keep working.
+
+Rationale: without it, no caller can tell whether the files it checks
+(`PM_DIR`) are the files the daemon serves. Doctor's split verdict depends
+on this field.
+
+#### Scenario: health carries the dir
+
+- **WHEN** `GET /healthz` answers
+- **THEN** the body carries `status`, `version` and `data_dir`
