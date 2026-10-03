@@ -78,16 +78,11 @@ force-complete every non-done step, set status `completed` with `CompletedAt`,
 and record a `Closed: <reason>` decision. Input schema is `{"type": "object"}`
 with required `project_id` and optional `reason` and `confirm`.
 
-Closing does NOT resolve blockers: the blocker records stay on the completed
-steps. The plan states this, so a human is not left believing a blocker was
-settled when only the step around it was.
-
-Rationale: the tool deliberately bypasses the step lifecycle, so it is the one
-operation that can mark unfinished work finished. Requiring a plan first is what
-keeps the `review` stop meaningful — the confirmation is the human's claim that
-the work is done, relayed by the agent, not the agent's own judgement. For
-finished work it still replaces N lifecycle calls; for active work the strict
-lifecycle stays.
+The confirm path SHALL NOT assume the store answered with a plan: a store
+that returns nil (any present or future file-backed or daemon-backed store)
+SHALL yield a success message without a moved-count, never a crash. After the
+serve-api change the daemon always sends a plan, so the guard is a second line,
+not the fix.
 
 #### Scenario: Close with reason
 
@@ -110,6 +105,12 @@ lifecycle stays.
 
 - **WHEN** the client calls `close_project` with `confirm: true` and an empty reason
 - **THEN** the call fails, the project stays `active`, and no decision is written
+
+#### Scenario: Confirm survives a nil plan
+
+- **WHEN** the underlying store answers confirm with a nil plan
+- **THEN** the tool still succeeds with a closed message naming the project
+  and reason, and the server process stays alive
 
 ### Requirement: Delete tool
 
