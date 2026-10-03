@@ -1094,6 +1094,13 @@ func handleCloseProject(st store.Store, ctx context.Context, args json.RawMessag
 	if err != nil {
 		return "", fmt.Errorf("%w. See list_projects for live numbers", err)
 	}
+	// plan may be nil: some stores answer confirm without one (the daemon did
+	// before the contract fix). A missing count is a poorer message, never a
+	// panic: the process must outlive any single store answer.
+	if plan == nil {
+		return fmt.Sprintf("Project #%d %q closed (%s). Recorded as a Closed decision.",
+			pd.Project.Number, pd.Project.Title, params.Reason), nil
+	}
 	return fmt.Sprintf("Project #%d %q closed (%s). %d step(s) moved to done. Recorded as a Closed decision.",
 		pd.Project.Number, pd.Project.Title, params.Reason, plan.StepsToClose()), nil
 }

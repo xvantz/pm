@@ -269,8 +269,10 @@ type closeProjectReq struct {
 	Confirm bool `json:"confirm,omitempty"`
 }
 
-// closeProjectResp carries a plan or a closed project, never both. Confirmed
-// says which: false means the caller has not consented and must look first.
+// closeProjectResp carries a plan, a closed project, or both. Confirmed
+// says which: false is the no-consent preview (plan only, nothing touched),
+// true is the close itself (project plus the plan built before closing, so
+// every caller can report the moved count from one response).
 type closeProjectResp struct {
 	Confirmed bool             `json:"confirmed"`
 	Plan      *types.ClosePlan `json:"plan,omitempty"`
@@ -304,9 +306,15 @@ func (s *Server) handleProjectClose(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Consent given. The store enforces the reason and performs the close;
-	// the daemon only shapes the response.
-	_, err := s.store.CloseProject(pd.Project.ID, req.Reason, true)
+	// the daemon only shapes the response. The plan is built before closing
+	// so confirm answers with both: file-backed and daemon-backed callers
+	// then observe the same contract, and no caller dereferences a nil plan.
+	plan, err := s.store.ClosePlan(pd.Project.ID)
 	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	if _, err := s.store.CloseProject(pd.Project.ID, req.Reason, true); err != nil {
 		writeErr(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
@@ -315,7 +323,7 @@ func (s *Server) handleProjectClose(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, closeProjectResp{Confirmed: true, Project: &closed.Project})
+	writeJSON(w, http.StatusOK, closeProjectResp{Confirmed: true, Project: &closed.Project, Plan: plan})
 }
 
 // handleProjectClosePlan answers "what would closing do" without closing.
