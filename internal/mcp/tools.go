@@ -26,9 +26,14 @@ func RegisterPMTools(s *Server, st store.Store) {
 	tools := []Tool{
 		{
 			Name:        "list_projects",
-			Description: "List all projects with status and progress. Start here to find a project number, then read state with get_project.",
-			InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
-			Handler:     makeHandler(st, handleListProjects),
+			Description: "List projects with status and progress. Default is active only; use status=all for history, status=completed for closed ones. Start here to find a project number, then read state with get_project.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"status": {"type": "string", "description": "Filter by status: active (default), completed, all", "enum": ["active", "completed", "all"]}
+				}
+			}`),
+			Handler: makeHandler(st, handleListProjects),
 		},
 		{
 			Name:        "get_project",
@@ -320,13 +325,47 @@ type jsonDecisionItem struct {
 // --- Handlers ---
 
 func handleListProjects(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		Status string `json:"status"`
+	}
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &params); err != nil {
+			return "", badArgs(err, `{"status": "active|completed|all"}`)
+		}
+	}
+	status := params.Status
+	if status == "" {
+		status = "active"
+	}
+	switch status {
+	case "active", "completed", "all":
+	default:
+		return "", fmt.Errorf("unknown status %q. Need: active|completed|all", params.Status)
+	}
+
 	projects, err := st.ListProjects()
 	if err != nil {
 		return "", fmt.Errorf("list projects: %w", err)
 	}
 
+	activeCount, completedCount := 0, 0
+	for _, p := range projects {
+		if p.Status == types.StatusCompleted {
+			completedCount++
+		} else {
+			activeCount++
+		}
+	}
+
 	items := make([]jsonProjectItem, 0, len(projects))
 	for _, p := range projects {
+		isCompleted := p.Status == types.StatusCompleted
+		if status == "active" && isCompleted {
+			continue
+		}
+		if status == "completed" && !isCompleted {
+			continue
+		}
 		items = append(items, jsonProjectItem{
 			Number:    p.Number,
 			Title:     p.Title,
@@ -338,10 +377,18 @@ func handleListProjects(st store.Store, ctx context.Context, args json.RawMessag
 		})
 	}
 
-	data, err := json.Marshal(map[string]any{
-		"count":    len(items),
-		"projects": items,
-	})
+	resp := map[string]any{
+		"count":           len(items),
+		"projects":        items,
+		"active_count":    activeCount,
+		"completed_count": completedCount,
+		"total":           len(projects),
+	}
+	if status == "active" && completedCount > 0 {
+		resp["hint"] = fmt.Sprintf("%d completed hidden. Next: list_projects {\"status\": \"all\"} for history.", completedCount)
+	}
+
+	data, err := json.Marshal(resp)
 	if err != nil {
 		return "", fmt.Errorf("marshal response: %w", err)
 	}

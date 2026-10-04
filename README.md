@@ -111,7 +111,7 @@ pm-mcp is a JSON-RPC 2.0 server over stdio with NDJSON framing. 13 tools:
 
 | Tool | Description |
 |-----------|----------|
-| `list_projects` | list projects (JSON) |
+| `list_projects` | projects, active by default (`status=all` for history, `status=completed` for closed) |
 | `get_project` | project summary: counts, open blockers, last step (`detail:true` for everything) |
 | `get_step` | one step in full, with its blockers and artifacts |
 | `add_project` | create a project |
@@ -352,6 +352,12 @@ old full dump when you genuinely need every step and decision.
 
 The summary counts every step (`steps_by_status` sums to `steps_total`), so
 nothing is hidden — it is just not spelled out until you ask.
+
+`list_projects` is active by default for the same reason: closed projects are
+noise in audits and they grow with every close. The filtered answer still
+counts (`active_count + completed_count == total`) and hints at `status=all`
+when something is hidden. History questions use `status=all`, inspecting one
+closed project uses `status=completed`.
 
 ### Days and time zones
 
