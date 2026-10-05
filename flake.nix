@@ -205,6 +205,8 @@
                 Restart = "always";
                 RestartSec = "5";
                 EnvironmentFile = cfg.environmentFile;
+                # Backup shells out to git: systemd PATH is minimal without it.
+                path = [ pkgs.git ];
               };
               script = ''
                 export PM_DIR="${cfg.dataDir}"
