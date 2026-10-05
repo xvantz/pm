@@ -6,8 +6,11 @@
 //
 // Semantics notes:
 //   - NextNumber is advisory (max+1 from the list); the daemon assigns the
-//     real number server-side under its mutex. Concurrent creates may print
-//     a stale number in confirmation texts but never duplicate one.
+//     real number server-side under its mutex. Callers must re-read the
+//     project by UUID after SaveProject and print that number:
+//     handleAddProject (MCP) and cmdProjectCreate (CLI) both do this,
+//     so confirmation texts stay correct even when trash gaps push the
+//     counter ahead of the live max.
 //   - AdvanceNextNumber is a no-op: the daemon advances its counter on create.
 //   - SaveStep/SaveBlocker translate entity deltas into lifecycle endpoints
 //     (start/review/done/resolve) so server-side validation always applies.

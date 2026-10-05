@@ -649,8 +649,20 @@ func handleAddProject(st store.Store, ctx context.Context, args json.RawMessage)
 		return "", fmt.Errorf("save project: %w", err)
 	}
 
-	return fmt.Sprintf("Project #%d %q created.\nID: %s\n\nNext: add_step {project_id: %d} to add the first step",
-		p.Number, p.Title, p.ID, p.Number), nil
+	// The store may assign the real number (remote daemon counts trashed
+	// projects, advisory NextNumber above does not): re-read by stable
+	// UUID and echo that, or hints point nowhere.
+	displayNum := p.Number
+	if saved, err := st.GetProject(id); err == nil {
+		displayNum = saved.Project.Number
+	} else if rp, rerr := st.ResolveProject(id); rerr == nil {
+		displayNum = rp.Project.Number
+	} else {
+		return "", fmt.Errorf("resolve created project: %w", err)
+	}
+
+	return fmt.Sprintf("Project #%d %q created.\nID: %s\n\nNext: add_step {project_id: %q} to add the first step",
+		displayNum, p.Title, p.ID, p.ID), nil
 }
 
 func handleAddStep(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
