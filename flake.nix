@@ -102,6 +102,33 @@
                 without this file fails the build (see assertions).
               '';
             };
+
+            backup = {
+              enable = mkEnableOption "git backup of the PM data directory (one commit per action, async push off-host)";
+
+              repoUrl = mkOption {
+                type = types.nullOr types.str;
+                default = null;
+                example = "git@git.827482.xyz:xvantz/pm-data.git";
+                description = ''
+                  Git remote for the data-dir backup (passed as PM_BACKUP_REPO).
+                  Required when backup is enabled. Unset repo means no backup:
+                  the daemon serves the same API without committing.
+                '';
+              };
+
+              keyFile = mkOption {
+                type = types.nullOr types.path;
+                default = null;
+                example = literalExpression "config.sops.secrets.pm_backup_key.path";
+                description = ''
+                  SSH private key for the backup remote (passed as PM_BACKUP_KEY,
+                  used via GIT_SSH_COMMAND with IdentitiesOnly). Same secrecy
+                  as environmentFile: sops secret, mode 600, service user only.
+                  Optional: without it SSH falls back to the default agent/keys.
+                '';
+              };
+            };
           };
 
           config = mkIf cfg.enable {
@@ -114,6 +141,15 @@
                     sops.secrets.pm_env = { owner = "xvantz"; restartUnits = [ "pm-serve.service" ]; };
                   and point services.pm.environmentFile at config.sops.secrets.pm_env.path,
                   then put PM_TOKEN=... into secrets.yaml (sops).
+                '';
+              }
+              {
+                assertion = !cfg.backup.enable || cfg.backup.repoUrl != null;
+                message = ''
+                  services.pm.backup is enabled without services.pm.backup.repoUrl.
+                  Set the backup remote, e.g.:
+                    services.pm.backup.repoUrl = "git@git.827482.xyz:xvantz/pm-data.git";
+                  or disable backup (the default): services.pm.backup.enable = false.
                 '';
               }
             ];
@@ -159,6 +195,12 @@
               };
               script = ''
                 export PM_DIR="${cfg.dataDir}"
+                ${optionalString (cfg.backup.enable && cfg.backup.repoUrl != null) ''
+                  export PM_BACKUP_REPO="${cfg.backup.repoUrl}"
+                ''}
+                ${optionalString (cfg.backup.enable && cfg.backup.keyFile != null) ''
+                  export PM_BACKUP_KEY="${cfg.backup.keyFile}"
+                ''}
                 exec ${cfg.package}/bin/pm serve --addr "${cfg.listenAddr}"
               '';
             };

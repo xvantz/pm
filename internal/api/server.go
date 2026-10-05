@@ -16,6 +16,7 @@ import (
 
 	"github.com/xvantz/pm/internal/briefing"
 	"github.com/xvantz/pm/internal/domain"
+	"github.com/xvantz/pm/internal/gitbackup"
 	"github.com/xvantz/pm/internal/slug"
 	"github.com/xvantz/pm/internal/store"
 	"github.com/xvantz/pm/internal/types"
@@ -31,11 +32,18 @@ type Server struct {
 	mu      sync.Mutex // serializes mutations across projects (counter, etc.)
 	token   string
 	version string
+	backup  *gitbackup.Backup
 }
 
 // New returns a Server bound to st. Token must be non-empty.
 func New(st store.Store, token string) *Server {
-	s := &Server{store: st, mux: http.NewServeMux(), token: token, version: Version}
+	return NewWithBackup(st, token, nil)
+}
+
+// NewWithBackup binds st with a git backup of the data dir. A nil or
+// disabled backup is a no-op: handlers never branch on it.
+func NewWithBackup(st store.Store, token string, bk *gitbackup.Backup) *Server {
+	s := &Server{store: st, mux: http.NewServeMux(), token: token, version: Version, backup: bk}
 	s.mux.HandleFunc("GET /healthz", s.handleHealth)
 	s.mux.HandleFunc("GET /api/projects", s.auth(s.handleProjectsList))
 	s.mux.HandleFunc("POST /api/projects", s.auth(s.handleProjectCreate))
@@ -96,6 +104,14 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
+}
+
+// commit records the action in the data-dir git repo. Git failures are
+// warnings: the data write already landed and the API answer stays green.
+func (s *Server) commit(action string) {
+	if err := s.backup.Commit(action); err != nil {
+		slog.Warn("backup commit failed", "action", action, "error", err)
+	}
 }
 
 // resolve finds the project or writes 404.
@@ -167,6 +183,7 @@ func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, p)
+	s.commit("add_project " + p.ID)
 }
 
 func (s *Server) handleProjectGet(w http.ResponseWriter, r *http.Request) {
@@ -218,6 +235,7 @@ func (s *Server) handleProjectPatch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("save project: %v", err))
 		return
 	}
+	s.commit("patch_project " + pd.Project.ID)
 	writeJSON(w, http.StatusOK, pd.Project)
 }
 
@@ -233,6 +251,7 @@ func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.commit("delete_project " + pd.Project.ID)
 	writeJSON(w, http.StatusOK, map[string]string{"trashed": pd.Project.Title})
 }
 
@@ -298,6 +317,7 @@ func (s *Server) handleProjectClose(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.commit("close_project " + pd.Project.ID)
 	writeJSON(w, http.StatusOK, closeProjectResp{Confirmed: true, Project: &closed.Project, Plan: plan})
 }
 
@@ -376,6 +396,7 @@ func (s *Server) handleStepCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	touchProject(s, pd)
+	s.commit("add_step " + pd.Project.ID + " " + step.ID)
 	writeJSON(w, http.StatusCreated, step)
 }
 
@@ -425,6 +446,7 @@ func (s *Server) handleStepAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	touchProject(s, pd)
+	s.commit(action + "_step " + pd.Project.ID + " " + st.ID)
 	writeJSON(w, http.StatusOK, *st)
 }
 
@@ -445,6 +467,7 @@ func (s *Server) handleStepDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	touchProject(s, pd)
+	s.commit("delete_step " + pd.Project.ID + " " + r.PathValue("step"))
 	writeJSON(w, http.StatusOK, map[string]string{"deleted": r.PathValue("step")})
 }
 
@@ -517,6 +540,7 @@ func (s *Server) handleBlockerCreate(w http.ResponseWriter, r *http.Request) {
 	} else {
 		touchProject(s, pd)
 	}
+	s.commit("add_blocker " + pd.Project.ID + " " + st.ID + " " + blocker.ID)
 	writeJSON(w, http.StatusCreated, blocker)
 }
 
@@ -567,6 +591,7 @@ func (s *Server) handleBlockerResolve(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	touchProject(s, pd)
+	s.commit("resolve_blocker " + pd.Project.ID + " " + r.PathValue("step") + " " + target.ID)
 	writeJSON(w, http.StatusOK, *target)
 }
 
@@ -587,6 +612,7 @@ func (s *Server) handleBlockerDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	touchProject(s, pd)
+	s.commit("delete_blocker " + pd.Project.ID + " " + r.PathValue("step") + " " + r.PathValue("blk"))
 	writeJSON(w, http.StatusOK, map[string]string{"deleted": r.PathValue("blk")})
 }
 
@@ -646,6 +672,7 @@ func (s *Server) handleDecisionCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	touchProject(s, pd)
+	s.commit("add_decision " + pd.Project.ID + " " + decision.ID)
 	writeJSON(w, http.StatusCreated, decision)
 }
 
@@ -662,6 +689,7 @@ func (s *Server) handleDecisionDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	touchProject(s, pd)
+	s.commit("delete_decision " + pd.Project.ID + " " + r.PathValue("dec"))
 	writeJSON(w, http.StatusOK, map[string]string{"deleted": r.PathValue("dec")})
 }
 
@@ -705,6 +733,7 @@ func (s *Server) handleTrashRestore(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
+	s.commit("trash_restore " + name)
 	writeJSON(w, http.StatusOK, map[string]string{"restored": name})
 }
 
@@ -716,6 +745,7 @@ func (s *Server) handleTrashClean(w http.ResponseWriter, _ *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	s.commit("trash_clean")
 	writeJSON(w, http.StatusOK, map[string]string{"cleaned": "trash"})
 }
 

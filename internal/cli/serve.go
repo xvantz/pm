@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,17 +14,23 @@ import (
 
 	"github.com/xvantz/pm/internal/api"
 	"github.com/xvantz/pm/internal/apistore"
+	"github.com/xvantz/pm/internal/gitbackup"
 	"github.com/xvantz/pm/internal/store"
 )
 
 // pm serve [--addr 127.0.0.1:8472] [--dir PATH] [--token ...]
+// [--backup-repo URL] [--backup-key PATH]
 // The daemon is the only process touching YAML: single writer.
 // Token falls back to PM_TOKEN env. Missing token is a startup error.
+// Backup falls back to PM_BACKUP_REPO/PM_BACKUP_KEY env; unset repo means
+// no backup. A broken backup degrades to serving without it, loudly.
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	addr := fs.String("addr", apistore.DefaultServeAddr, "listen address (keep localhost unless behind Tailscale)")
 	dir := fs.String("dir", "", "PM root directory (overrides PM_DIR env)")
 	token := fs.String("token", "", "Bearer token (overrides PM_TOKEN env)")
+	backupRepo := fs.String("backup-repo", "", "git remote for data-dir backup (overrides PM_BACKUP_REPO env)")
+	backupKey := fs.String("backup-key", "", "SSH key for the backup remote (overrides PM_BACKUP_KEY env)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -52,7 +59,24 @@ func cmdServe(args []string) error {
 		return fmt.Errorf("projects dir not found: %s\n  Run `pm init` first.", projectsDir)
 	}
 
-	srv := api.New(store.NewFileStore(projectsDir), tok)
+	repo := *backupRepo
+	if repo == "" {
+		repo = os.Getenv("PM_BACKUP_REPO")
+	}
+	key := *backupKey
+	if key == "" {
+		key = os.Getenv("PM_BACKUP_KEY")
+	}
+	bk, err := gitbackup.New(projectsDir, gitbackup.Config{Enabled: repo != "", RepoURL: repo, KeyFile: key})
+	if err != nil {
+		// Fail-closed on push, open on serving: data matters more than
+		// backup. Loud log, degraded mode, same API.
+		slog.Error("git backup degraded: serving without backup", "error", err)
+		bk, _ = gitbackup.New(projectsDir, gitbackup.Config{})
+	}
+	defer bk.Stop()
+
+	srv := api.NewWithBackup(store.NewFileStore(projectsDir), tok, bk)
 	httpSrv := &http.Server{Addr: *addr, Handler: srv}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
