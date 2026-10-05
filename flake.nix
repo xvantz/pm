@@ -197,6 +197,10 @@
               description = "PM Project Memory daemon (single writer API)";
               wantedBy = [ "multi-user.target" ];
               after = [ "network.target" ];
+              # Backup shells out to git: units run with a minimal PATH.
+              # NOTE: path lives here, not in serviceConfig (systemd would
+              # reject it as an unknown key and silently ignore it).
+              path = [ pkgs.git ];
               serviceConfig = {
                 Type = "simple";
                 # The data lives wherever dataDir points (a $HOME by default),
@@ -205,8 +209,6 @@
                 Restart = "always";
                 RestartSec = "5";
                 EnvironmentFile = cfg.environmentFile;
-                # Backup shells out to git: systemd PATH is minimal without it.
-                path = [ pkgs.git ];
               };
               script = ''
                 export PM_DIR="${cfg.dataDir}"
