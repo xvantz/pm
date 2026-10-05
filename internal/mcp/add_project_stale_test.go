@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -11,38 +12,28 @@ import (
 )
 
 // trashGapStore simulates the remote daemon after trash deletes: the live
-// max is N but the server-side counter is ahead (N+k). NextNumber stays
-// advisory (live max+1); SaveProject assigns the server number; GetProject
-// returns the server number. Before the fix handleAddProject printed the
-// advisory number, so the confirmation lied and add_step 404'd.
+// max is N but the server-side counter is ahead (N+k). CreateProject assigns
+// the server number and returns it, like the real apistore now does.
 type trashGapStore struct {
 	store.Store
 	serverNext int
 }
 
-func (s *trashGapStore) NextNumber() (int, error) {
-	projects, err := s.Store.ListProjects()
-	if err != nil {
-		return 0, err
+func (s *trashGapStore) CreateProject(title, goal string, tags []string, id string) (types.Project, error) {
+	if strings.TrimSpace(title) == "" {
+		return types.Project{}, fmt.Errorf("title cannot be empty")
 	}
-	max := 0
-	for _, p := range projects {
-		if p.Number > max {
-			max = p.Number
-		}
+	now := types.NowTimestamp()
+	p := types.Project{
+		ID: id, Number: s.serverNext, Title: title,
+		Goal: goal, Tags: tags,
+		Status: types.StatusIdea, CreatedAt: now, UpdatedAt: now,
 	}
-	return max + 1, nil
-}
-
-func (s *trashGapStore) AdvanceNextNumber() error { return nil }
-
-func (s *trashGapStore) SaveProject(p types.Project) error {
-	if _, err := s.Store.GetProject(p.ID); err == nil {
-		return s.Store.SaveProject(p)
-	}
-	p.Number = s.serverNext
 	s.serverNext++
-	return s.Store.SaveProject(p)
+	if err := s.Store.SaveProject(p); err != nil {
+		return types.Project{}, err
+	}
+	return p, nil
 }
 
 func TestHandleAddProject_TrashGapPrintsServerNumber(t *testing.T) {

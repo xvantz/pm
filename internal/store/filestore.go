@@ -13,6 +13,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/google/uuid"
 	"github.com/xvantz/pm/internal/domain"
 	"github.com/xvantz/pm/internal/types"
 )
@@ -277,6 +278,45 @@ func (s *FileStore) AdvanceNextNumber() error {
 		return err
 	}
 	return writeNextNumber(s.root, n+1)
+}
+
+func (s *FileStore) CreateProject(title, goal string, tags []string, id string) (types.Project, error) {
+	if strings.TrimSpace(title) == "" {
+		return types.Project{}, ErrEmptyTitle
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		uid, err := uuid.NewV7()
+		if err != nil {
+			return types.Project{}, fmt.Errorf("generate id: %w", err)
+		}
+		id = uid.String()
+	} else if _, err := uuid.Parse(id); err != nil {
+		return types.Project{}, fmt.Errorf("%w: %q", ErrBadID, id)
+	}
+	if _, err := s.GetProject(id); err == nil {
+		return types.Project{}, fmt.Errorf("%w: %q", ErrProjectExist, id)
+	}
+	number, err := s.NextNumber()
+	if err != nil {
+		return types.Project{}, fmt.Errorf("next number: %w", err)
+	}
+	now := types.NowTimestamp()
+	p := types.Project{
+		ID: id, Number: number, Title: title,
+		Goal: goal, Tags: tags,
+		Status: types.StatusIdea, CreatedAt: now, UpdatedAt: now,
+	}
+	// Advance before save: a crash skips a number (gap), never duplicates one.
+	// Racing creates must serialize outside (the daemon holds s.mu); same
+	// requirement the old NextNumber/Advance/Save trio had.
+	if err := s.AdvanceNextNumber(); err != nil {
+		return types.Project{}, fmt.Errorf("advance number: %w", err)
+	}
+	if err := s.SaveProject(p); err != nil {
+		return types.Project{}, fmt.Errorf("save project: %w", err)
+	}
+	return p, nil
 }
 
 func (s *FileStore) SaveProject(p types.Project) error {

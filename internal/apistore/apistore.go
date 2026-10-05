@@ -5,12 +5,9 @@
 // single-writer daemon instead of YAML files.
 //
 // Semantics notes:
-//   - NextNumber is advisory (max+1 from the list); the daemon assigns the
-//     real number server-side under its mutex. Callers must re-read the
-//     project by UUID after SaveProject and print that number:
-//     handleAddProject (MCP) and cmdProjectCreate (CLI) both do this,
-//     so confirmation texts stay correct even when trash gaps push the
-//     counter ahead of the live max.
+//   - CreateProject returns the daemon-assigned project: the single creation
+//     path, no re-read needed. NextNumber stays advisory (max+1 from the
+//     list) for direct tooling only.
 //   - AdvanceNextNumber is a no-op: the daemon advances its counter on create.
 //   - SaveStep/SaveBlocker translate entity deltas into lifecycle endpoints
 //     (start/review/done/resolve) so server-side validation always applies.
@@ -78,6 +75,17 @@ func (s *Store) GetBlockers(projectID string) ([]types.Blocker, error) {
 
 func (s *Store) GetDecisions(projectID string) ([]types.Decision, error) {
 	return s.c.ListDecisions(projectID)
+}
+
+func (s *Store) CreateProject(title, goal string, tags []string, id string) (types.Project, error) {
+	p, err := s.c.CreateProject(title, goal, tags, id)
+	if err != nil {
+		return types.Project{}, err
+	}
+	if p == nil {
+		return types.Project{}, fmt.Errorf("create project: empty response")
+	}
+	return *p, nil
 }
 
 func (s *Store) SaveProject(p types.Project) error {
