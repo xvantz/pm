@@ -19,9 +19,13 @@ import (
 // Config wires the backup. Zero Config disables everything: New returns a
 // Backup whose methods are no-ops, so callers never branch on enablement.
 type Config struct {
-	Enabled   bool
-	RepoURL   string
+	Enabled bool
+	RepoURL string
+	// KeyFile is an SSH private key for the remote. Token is a Bearer
+	// token for HTTPS remotes. Both set means each travels its own
+	// channel; git picks the one matching the remote scheme.
 	KeyFile   string
+	Token     string
 	Author    string
 	Email     string
 	PushTries int
@@ -196,6 +200,12 @@ func (b *Backup) env() []string {
 	if b.cfg.KeyFile != "" {
 		cmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes", b.cfg.KeyFile)
 		env = append(env, "GIT_SSH_COMMAND="+cmd)
+	}
+	if b.cfg.Token != "" {
+		// Env config, not -c args: the token stays out of the process list.
+		env = append(env, "GIT_CONFIG_COUNT=1")
+		env = append(env, "GIT_CONFIG_KEY_0=http.extraHeader")
+		env = append(env, "GIT_CONFIG_VALUE_0=Authorization: Bearer "+b.cfg.Token)
 	}
 	return env
 }

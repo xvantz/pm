@@ -31,6 +31,7 @@ func cmdServe(args []string) error {
 	token := fs.String("token", "", "Bearer token (overrides PM_TOKEN env)")
 	backupRepo := fs.String("backup-repo", "", "git remote for data-dir backup (overrides PM_BACKUP_REPO env)")
 	backupKey := fs.String("backup-key", "", "SSH key for the backup remote (overrides PM_BACKUP_KEY env)")
+	backupToken := fs.String("backup-token", "", "Bearer token for an HTTPS backup remote (overrides PM_BACKUP_TOKEN env)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -67,7 +68,11 @@ func cmdServe(args []string) error {
 	if key == "" {
 		key = os.Getenv("PM_BACKUP_KEY")
 	}
-	bk, err := gitbackup.New(projectsDir, gitbackup.Config{Enabled: repo != "", RepoURL: repo, KeyFile: key})
+	btok := *backupToken
+	if btok == "" {
+		btok = os.Getenv("PM_BACKUP_TOKEN")
+	}
+	bk, err := gitbackup.New(projectsDir, gitbackup.Config{Enabled: repo != "", RepoURL: repo, KeyFile: key, Token: btok})
 	if err != nil {
 		// Fail-closed on push, open on serving: data matters more than
 		// backup. Loud log, degraded mode, same API.
