@@ -7,13 +7,12 @@ package api
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
-
-	"github.com/google/uuid"
 
 	"github.com/xvantz/pm/internal/briefing"
 	"github.com/xvantz/pm/internal/domain"
@@ -153,42 +152,18 @@ func (s *Server) handleProjectCreate(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Honor a client-provided UUID (CLI/MCP pre-assign one and print it in
-	// confirmation texts). Fall back to server-generated when absent.
-	id := strings.TrimSpace(req.ID)
-	if id == "" {
-		uid, err := uuid.NewV7()
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, fmt.Sprintf("generate id: %v", err))
-			return
-		}
-		id = uid.String()
-	} else if _, err := uuid.Parse(id); err != nil {
-		writeErr(w, http.StatusBadRequest, fmt.Sprintf("bad id: %q", req.ID))
-		return
-	}
-	if _, err := s.store.GetProject(id); err == nil {
-		writeErr(w, http.StatusConflict, fmt.Sprintf("project %q already exists", id))
-		return
-	}
-	number, err := s.store.NextNumber()
+	// The store assigns the number and returns what was stored: one call,
+	// no advisory read on this side. Errors map by sentinel.
+	p, err := s.store.CreateProject(req.Title, req.Goal, req.Tags, req.ID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("next number: %v", err))
-		return
-	}
-	now := types.NowTimestamp()
-	p := types.Project{
-		ID: id, Number: number, Title: req.Title,
-		Goal: req.Goal, Tags: req.Tags,
-		Status: types.StatusIdea, CreatedAt: now, UpdatedAt: now,
-	}
-	// Advance before save: a crash skips a number (gap), never duplicates one.
-	if err := s.store.AdvanceNextNumber(); err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("advance number: %v", err))
-		return
-	}
-	if err := s.store.SaveProject(p); err != nil {
-		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("save project: %v", err))
+		switch {
+		case errors.Is(err, store.ErrEmptyTitle), errors.Is(err, store.ErrBadID):
+			writeErr(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, store.ErrProjectExist):
+			writeErr(w, http.StatusConflict, err.Error())
+		default:
+			writeErr(w, http.StatusInternalServerError, fmt.Sprintf("create project: %v", err))
+		}
 		return
 	}
 	writeJSON(w, http.StatusCreated, p)

@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/xvantz/pm/internal/domain"
 	"github.com/xvantz/pm/internal/types"
 )
@@ -107,6 +108,43 @@ func (s *MockStore) GetDecisions(projectID string) ([]types.Decision, error) {
 		return nil, fmt.Errorf("project %q not found", projectID)
 	}
 	return pd.Decisions, nil
+}
+
+func (s *MockStore) CreateProject(title, goal string, tags []string, id string) (types.Project, error) {
+	if strings.TrimSpace(title) == "" {
+		return types.Project{}, ErrEmptyTitle
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		uid, err := uuid.NewV7()
+		if err != nil {
+			return types.Project{}, fmt.Errorf("generate id: %w", err)
+		}
+		id = uid.String()
+	} else if _, err := uuid.Parse(id); err != nil {
+		return types.Project{}, fmt.Errorf("%w: %q", ErrBadID, id)
+	}
+	if _, ok := s.projects[id]; ok {
+		return types.Project{}, fmt.Errorf("%w: %q", ErrProjectExist, id)
+	}
+	maxN := 0
+	for _, pd := range s.projects {
+		if pd.Project.Number > maxN {
+			maxN = pd.Project.Number
+		}
+	}
+	now := types.NowTimestamp()
+	p := types.Project{
+		ID: id, Number: maxN + 1, Title: title,
+		Goal: goal, Tags: tags,
+		Status: types.StatusIdea, CreatedAt: now, UpdatedAt: now,
+	}
+	s.projects[id] = &types.ProjectData{
+		Project:   p,
+		Steps:     []types.Step{},
+		Decisions: []types.Decision{},
+	}
+	return p, nil
 }
 
 func (s *MockStore) SaveProject(p types.Project) error {

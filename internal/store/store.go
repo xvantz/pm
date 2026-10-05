@@ -1,6 +1,18 @@
 package store
 
-import "github.com/xvantz/pm/internal/types"
+import (
+	"errors"
+
+	"github.com/xvantz/pm/internal/types"
+)
+
+// Creation errors: stores wrap them with %w context, callers map with
+// errors.Is (the daemon maps them to 400/409).
+var (
+	ErrEmptyTitle   = errors.New("title cannot be empty")
+	ErrBadID        = errors.New("bad id")
+	ErrProjectExist = errors.New("project already exists")
+)
 
 type Store interface {
 	// ListProjects returns all projects.
@@ -9,9 +21,24 @@ type Store interface {
 	GetProject(id string) (*types.ProjectData, error)
 	// ResolveProject finds a project by display number (as string) or internal UUID.
 	ResolveProject(ref string) (*types.ProjectData, error)
+	// CreateProject creates a project with status idea and returns what was
+	// stored. The number is assigned by the store (file counter, daemon
+	// mutex, live max+1 in test doubles) and MUST be printed as-is: the
+	// advisory NextNumber known before save may be stale (trash consumes
+	// numbers permanently, concurrent creates race). Empty id means the
+	// store generates a UUIDv7; a taken id fails with ErrProjectExist, a
+	// non-UUID id with ErrBadID, an empty title with ErrEmptyTitle.
+	// This is the only creation path; NextNumber/AdvanceNextNumber below
+	// stay out of it.
+	CreateProject(title, goal string, tags []string, id string) (types.Project, error)
 	// NextNumber returns the next sequential project number.
+	//
+	// Deprecated: kept for direct file tooling and tests. Creation goes
+	// through CreateProject, which assigns the number itself.
 	NextNumber() (int, error)
 	// AdvanceNextNumber increments the next-number counter after a project is saved.
+	//
+	// Deprecated: see NextNumber.
 	AdvanceNextNumber() error
 	// GetSteps returns all steps for a project.
 	GetSteps(projectID string) ([]types.Step, error)

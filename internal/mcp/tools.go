@@ -622,47 +622,16 @@ func handleAddProject(st store.Store, ctx context.Context, args json.RawMessage)
 		return "", fmt.Errorf("generate project id: %w", err)
 	}
 	id := uid.String()
-	now := types.NowTimestamp()
-	nextNum, err := st.NextNumber()
+
+	// The store assigns the number and returns what was stored: print that,
+	// never an advisory read. The UUID above stays stable for follow-ups.
+	p, err := st.CreateProject(params.Title, params.Goal, params.Tags, id)
 	if err != nil {
-		return "", fmt.Errorf("next number: %w", err)
-	}
-
-	p := types.Project{
-		ID:        id,
-		Number:    nextNum,
-		Title:     params.Title,
-		Goal:      params.Goal,
-		Status:    types.StatusActive,
-		Tags:      params.Tags,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-
-	// Advance the counter BEFORE SaveProject so a crash between them
-	// skips a number (gap) rather than reusing one (duplicate).
-	if err := st.AdvanceNextNumber(); err != nil {
-		return "", fmt.Errorf("advance next number: %w", err)
-	}
-
-	if err := st.SaveProject(p); err != nil {
-		return "", fmt.Errorf("save project: %w", err)
-	}
-
-	// The store may assign the real number (remote daemon counts trashed
-	// projects, advisory NextNumber above does not): re-read by stable
-	// UUID and echo that, or hints point nowhere.
-	displayNum := p.Number
-	if saved, err := st.GetProject(id); err == nil {
-		displayNum = saved.Project.Number
-	} else if rp, rerr := st.ResolveProject(id); rerr == nil {
-		displayNum = rp.Project.Number
-	} else {
-		return "", fmt.Errorf("resolve created project: %w", err)
+		return "", fmt.Errorf("create project: %w", err)
 	}
 
 	return fmt.Sprintf("Project #%d %q created.\nID: %s\n\nNext: add_step {project_id: %q} to add the first step",
-		displayNum, p.Title, p.ID, p.ID), nil
+		p.Number, p.Title, p.ID, p.ID), nil
 }
 
 func handleAddStep(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {

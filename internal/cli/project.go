@@ -54,38 +54,14 @@ func cmdProjectCreate(args []string) error {
 		return fmt.Errorf("generate project id: %w", err)
 	}
 	id := uid.String()
-	number, err := st.NextNumber()
+
+	// The store assigns the number and returns what was stored: print that,
+	// never an advisory read. The UUID above stays stable for follow-ups.
+	p, err := st.CreateProject(title, "", nil, id)
 	if err != nil {
-		return fmt.Errorf("next number: %w", err)
+		return fmt.Errorf("create project: %w", err)
 	}
-
-	now := types.NowTimestamp()
-	p := types.Project{
-		ID:        id,
-		Number:    number,
-		Title:     title,
-		Status:    types.StatusIdea,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-
-	// Advance the counter BEFORE SaveProject so a crash between them
-	// skips a number (gap) rather than reusing one (duplicate).
-	if err := st.AdvanceNextNumber(); err != nil {
-		return fmt.Errorf("advance next number: %w", err)
-	}
-
-	if err := st.SaveProject(p); err != nil {
-		return fmt.Errorf("save project: %w", err)
-	}
-
-	// The server assigns the real number (advisory NextNumber above may be
-	// stale under concurrency): re-read and echo that, or hints point nowhere.
-	saved, err := st.ResolveProject(id)
-	if err != nil {
-		return fmt.Errorf("resolve created project: %w", err)
-	}
-	number = saved.Project.Number
+	number := p.Number
 
 	fmt.Printf("Created project #%d: %q\n", number, title)
 	fmt.Println()
