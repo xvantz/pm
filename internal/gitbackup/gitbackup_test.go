@@ -174,6 +174,58 @@ func TestGitBackup_BrokenGitReports(t *testing.T) {
 	}
 }
 
+// Token travels via env config, never on the command line.
+func TestGitBackup_TokenEnv(t *testing.T) {
+	withToken := &Backup{cfg: Config{Token: "secret123"}}
+	found := false
+	for _, kv := range withToken.env() {
+		if kv == "GIT_CONFIG_VALUE_0=Authorization: Bearer secret123" {
+			found = true
+		}
+		if strings.HasPrefix(kv, "GIT_CONFIG_VALUE_0=") && kv != "GIT_CONFIG_VALUE_0=Authorization: Bearer secret123" {
+			t.Fatalf("unexpected header value: %q", kv)
+		}
+	}
+	if !found {
+		t.Fatal("env lacks the Bearer header with token set")
+	}
+	for _, kv := range (&Backup{}).env() {
+		if strings.HasPrefix(kv, "GIT_CONFIG_") {
+			t.Fatalf("env carries git config without token: %q", kv)
+		}
+	}
+}
+
+// Commit+push work with a token set (file remote ignores the header).
+func TestGitBackup_PushToBareWithToken(t *testing.T) {
+	bare := t.TempDir()
+	if out, err := exec.Command("git", "init", "--bare", "-b", "main", bare).CombinedOutput(); err != nil {
+		t.Fatalf("init bare: %v: %s", err, out)
+	}
+	dir := t.TempDir()
+	b, err := New(dir, Config{Enabled: true, RepoURL: bare, Token: "secret123"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer b.Stop()
+
+	write(t, dir, "p.yaml", "v: 1\n")
+	if err := b.Commit("first"); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		out, _ := exec.Command("git", "-C", bare, "log", "--oneline", "main").CombinedOutput()
+		if strings.Contains(string(out), "first") {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("bare never received the commit, log = %q", out)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
 // Disabled backup is a full no-op: no repo created, Commit nil.
 func TestGitBackup_DisabledNoop(t *testing.T) {
 	dir := t.TempDir()

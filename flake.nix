@@ -128,6 +128,19 @@
                   Optional: without it SSH falls back to the default agent/keys.
                 '';
               };
+
+              tokenFile = mkOption {
+                type = types.nullOr types.path;
+                default = null;
+                example = literalExpression "config.sops.secrets.pm_backup_token.path";
+                description = ''
+                  File holding a Bearer token for an HTTPS backup remote
+                  (passed as PM_BACKUP_TOKEN, sent as an Authorization header
+                  via git env config, never on the command line or baked into
+                  the URL). Same secrecy as keyFile. Use this for HTTPS remotes,
+                  keyFile for SSH ones.
+                '';
+              };
             };
           };
 
@@ -200,6 +213,9 @@
                 ''}
                 ${optionalString (cfg.backup.enable && cfg.backup.keyFile != null) ''
                   export PM_BACKUP_KEY="${cfg.backup.keyFile}"
+                ''}
+                ${optionalString (cfg.backup.enable && cfg.backup.tokenFile != null) ''
+                  export PM_BACKUP_TOKEN="$(cat "${cfg.backup.tokenFile}")"
                 ''}
                 exec ${cfg.package}/bin/pm serve --addr "${cfg.listenAddr}"
               '';
