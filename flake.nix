@@ -200,7 +200,8 @@
               # Backup shells out to git: units run with a minimal PATH.
               # NOTE: path lives here, not in serviceConfig (systemd would
               # reject it as an unknown key and silently ignore it).
-              path = [ pkgs.git ];
+              # openssh covers SSH remotes (git alone ships no ssh binary).
+              path = [ pkgs.git pkgs.openssh ];
               serviceConfig = {
                 Type = "simple";
                 # The data lives wherever dataDir points (a $HOME by default),
