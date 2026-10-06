@@ -90,9 +90,16 @@ func (b *Backup) ensure() error {
 	if err != nil {
 		return fmt.Errorf("gitbackup: read origin: %w", err)
 	}
-	if strings.TrimSpace(out) != strings.TrimSpace(b.cfg.RepoURL) {
-		return fmt.Errorf("gitbackup: origin %q != configured %q: refusing to push elsewhere",
-			strings.TrimSpace(out), strings.TrimSpace(b.cfg.RepoURL))
+	if current := strings.TrimSpace(out); current != strings.TrimSpace(b.cfg.RepoURL) {
+		// The operator owns both config and repo: a stale origin (e.g. SSH
+		// from before the HTTPS switch) must follow the config, or the
+		// backup stays stuck forever. Loud log names both URLs; a typo'd
+		// URL fails at push with auth error, not silently elsewhere.
+		slog.Warn("gitbackup: origin differs, updating to configured remote",
+			"current", current, "configured", strings.TrimSpace(b.cfg.RepoURL))
+		if err := b.run("remote", "set-url", "origin", strings.TrimSpace(b.cfg.RepoURL)); err != nil {
+			return fmt.Errorf("gitbackup: set-url origin: %w", err)
+		}
 	}
 	return nil
 }
