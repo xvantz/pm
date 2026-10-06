@@ -204,6 +204,12 @@ func (b *Backup) Stop() {
 
 func (b *Backup) env() []string {
 	env := os.Environ()
+	// Sterile config: only the repo-local config applies. A user-global
+	// url.insteadOf (e.g. https->ssh rewrite) would otherwise silently
+	// change the transport away from the configured remote. Identity is
+	// pinned locally by ensure(), so nothing needed is lost.
+	env = append(env, "GIT_CONFIG_NOSYSTEM=1")
+	env = append(env, "GIT_CONFIG_GLOBAL=/dev/null")
 	if b.cfg.KeyFile != "" {
 		cmd := fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes", b.cfg.KeyFile)
 		env = append(env, "GIT_SSH_COMMAND="+cmd)

@@ -199,8 +199,8 @@ func TestGitBackup_TokenEnv(t *testing.T) {
 		t.Fatal("env lacks the Bearer header with token set")
 	}
 	for _, kv := range (&Backup{}).env() {
-		if strings.HasPrefix(kv, "GIT_CONFIG_") {
-			t.Fatalf("env carries git config without token: %q", kv)
+		if strings.HasPrefix(kv, "GIT_CONFIG_KEY_") || strings.HasPrefix(kv, "GIT_CONFIG_VALUE_") || kv == "GIT_CONFIG_COUNT=1" {
+			t.Fatalf("env carries auth config without token: %q", kv)
 		}
 	}
 }
@@ -232,6 +232,28 @@ func TestGitBackup_PushToBareWithToken(t *testing.T) {
 			t.Fatalf("bare never received the commit, log = %q", out)
 		}
 		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+// A hostile user-global url.insteadOf must not hijack the transport:
+// our sterile entries come last and win.
+func TestGitBackup_GlobalInsteadOfIgnored(t *testing.T) {
+	fakeGlobal := filepath.Join(t.TempDir(), "gitconfig")
+	rewrite := "[url \"ssh://bogus.invalid/\"]\n\tinsteadOf = https://\n"
+	if err := os.WriteFile(fakeGlobal, []byte(rewrite), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", fakeGlobal)
+
+	b := &Backup{cfg: Config{Enabled: true}}
+	var last string
+	for _, kv := range b.env() {
+		if strings.HasPrefix(kv, "GIT_CONFIG_GLOBAL=") {
+			last = kv
+		}
+	}
+	if last != "GIT_CONFIG_GLOBAL=/dev/null" {
+		t.Fatalf("last GIT_CONFIG_GLOBAL = %q, want sterile /dev/null", last)
 	}
 }
 
