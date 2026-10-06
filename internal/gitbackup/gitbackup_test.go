@@ -106,8 +106,8 @@ func TestGitBackup_AdoptsExistingRepo(t *testing.T) {
 	}
 }
 
-// Wrong remote is fail-closed: no push target switch, loud error.
-func TestGitBackup_RemoteMismatchRefuses(t *testing.T) {
+// Stale origin follows the config: set-url with a loud log, never stuck.
+func TestGitBackup_RemoteMismatchUpdates(t *testing.T) {
 	dir := t.TempDir()
 	must := func(args ...string) {
 		t.Helper()
@@ -116,11 +116,20 @@ func TestGitBackup_RemoteMismatchRefuses(t *testing.T) {
 		}
 	}
 	must("init", "-b", "main")
-	must("remote", "add", "origin", "git@example.invalid:evil/other.git")
+	must("remote", "add", "origin", "git@example.invalid:old/other.git")
 
-	_, err := New(dir, Config{Enabled: true, RepoURL: "git@example.invalid:x/pm-data.git"})
-	if err == nil || !strings.Contains(err.Error(), "refusing to push elsewhere") {
-		t.Fatalf("New err = %v, want fail-closed remote refusal", err)
+	b, err := New(dir, Config{Enabled: true, RepoURL: "git@example.invalid:x/pm-data.git"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer b.Stop()
+
+	out, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").CombinedOutput()
+	if err != nil {
+		t.Fatalf("get-url: %v: %s", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "git@example.invalid:x/pm-data.git" {
+		t.Fatalf("origin = %q, want configured URL", got)
 	}
 }
 

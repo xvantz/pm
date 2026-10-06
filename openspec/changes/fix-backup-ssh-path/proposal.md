@@ -9,8 +9,12 @@ directory`. Пакет `git` не поставляет бинарник `ssh` (�
 
 ## What Changes
 
-- `path = [ pkgs.git pkgs.openssh ]` на уровне сервиса. Покрывает оба
-  варианта remote (SSH и HTTPS) независимо от того, какой задан.
+- `path = [ pkgs.git pkgs.openssh ]` на уровне сервиса (не serviceConfig).
+  Покрывает оба варианта remote (SSH и HTTPS) независимо от того, какой задан.
+- Смена поведения remote: несовпавший origin переставляется на configured
+  через `set-url` с громким warn вместо вечного отказа. Причина: отказ
+  гарантировал залипший бэкап при каждой легитимной смене remote
+  (ровно твой случай SSH -> HTTPS).
 
 ## Non-goals
 
@@ -19,5 +23,7 @@ directory`. Пакет `git` не поставляет бинарник `ssh` (�
 
 ## Impact
 
-- Affected specs: нет. Дельты нет (`skip_specs`).
-- Affected code: `flake.nix` (один пакет в path).
+- Affected specs: `store-git-backup` (MODIFIED: stale origin следует за
+  конфигом вместо вечного отказа; имена сценариев сохранены).
+- Affected code: `flake.nix` (path), `internal/gitbackup/gitbackup.go`
+  (set-url), `internal/gitbackup/gitbackup_test.go` (mismatch-тест).
