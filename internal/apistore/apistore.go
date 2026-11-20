@@ -162,6 +162,11 @@ func (s *Store) SaveBlocker(b types.Blocker) error {
 		}
 		for _, existing := range st.Blockers {
 			if existing.ID == b.ID {
+				if existing.Title != b.Title || existing.Reason != b.Reason {
+					if _, err := s.c.PatchBlocker(b.ProjectID, b.StepID, b.ID, &b.Title, &b.Reason); err != nil {
+						return err
+					}
+				}
 				if b.Status == types.BlockerResolved && existing.Status != types.BlockerResolved {
 					_, err := s.c.ResolveBlocker(b.ProjectID, b.StepID, b.ID)
 					return err

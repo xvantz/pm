@@ -72,6 +72,10 @@ Reads SHALL return the same JSON shapes as MCP read tools:
 - `GET /api/projects/{ref}/blockers` -> `[]Blocker`
 - `POST /api/projects/{ref}/steps/{step}/blockers` `{title, reason?}`
   -> `Blocker` (default status `waiting`)
+- `PATCH /api/projects/{ref}/steps/{step}/blockers/{blk}`
+  `{title?, reason?}` -> `Blocker`
+  (text edit; the blocker id stays stable, an empty title is `400`, a title
+  whose slug collides inside the step is `409`, no field at all is `400`)
 - `POST .../blockers/{blk}/resolve` -> `Blocker`
 - `DELETE .../blockers/{blk}` -> `200`
 - `GET /api/projects/{ref}/decisions` -> `[]Decision`
@@ -96,6 +100,11 @@ Errors are JSON `{"error": msg}` with codes:
 
 - **WHEN** the client sends `PATCH /api/projects/{ref}` with `{"title": ""}`
 - **THEN** the server answers `400` with a JSON error body and the stored project keeps its old title
+
+#### Scenario: blocker text edit keeps the id
+
+- **WHEN** the client sends `PATCH .../blockers/{blk}` with `{"title": "new", "reason": "also new"}`
+- **THEN** the response is `200` with the updated `Blocker`, its id is unchanged, and a following `GET .../steps` shows the new text
 
 ### Requirement: CLI entry
 

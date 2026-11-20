@@ -60,6 +60,7 @@ func NewWithBackup(st store.Store, token string, bk *gitbackup.Backup) *Server {
 	s.mux.HandleFunc("GET /api/projects/{ref}/blockers", s.auth(s.handleBlockersList))
 	s.mux.HandleFunc("POST /api/projects/{ref}/steps/{step}/blockers", s.auth(s.handleBlockerCreate))
 	s.mux.HandleFunc("POST /api/projects/{ref}/steps/{step}/blockers/{blk}/resolve", s.auth(s.handleBlockerResolve))
+	s.mux.HandleFunc("PATCH /api/projects/{ref}/steps/{step}/blockers/{blk}", s.auth(s.handleBlockerPatch))
 	s.mux.HandleFunc("DELETE /api/projects/{ref}/steps/{step}/blockers/{blk}", s.auth(s.handleBlockerDelete))
 	s.mux.HandleFunc("GET /api/projects/{ref}/decisions", s.auth(s.handleDecisionsList))
 	s.mux.HandleFunc("POST /api/projects/{ref}/decisions", s.auth(s.handleDecisionCreate))
@@ -658,6 +659,80 @@ func (s *Server) handleBlockerResolve(w http.ResponseWriter, r *http.Request) {
 	touchProject(s, pd)
 	s.commit("resolve_blocker " + pd.Project.ID + " " + r.PathValue("step") + " " + target.ID)
 	writeJSON(w, http.StatusOK, *target)
+}
+
+type patchBlockerReq struct {
+	Title  *string `json:"title"`
+	Reason *string `json:"reason"`
+}
+
+// handleBlockerPatch edits a blocker's text. The id is a slug of the title at
+// creation time and stays stable: decisions and notes reference it.
+func (s *Server) handleBlockerPatch(w http.ResponseWriter, r *http.Request) {
+	var req patchBlockerReq
+	if !decode(w, r, &req) {
+		return
+	}
+	if req.Title == nil && req.Reason == nil {
+		writeErr(w, http.StatusBadRequest, "nothing to update: pass title or reason")
+		return
+	}
+	var title string
+	if req.Title != nil {
+		title = strings.TrimSpace(*req.Title)
+		if title == "" {
+			writeErr(w, http.StatusBadRequest, "title cannot be empty")
+			return
+		}
+		if slug.Of(title) == "" {
+			writeErr(w, http.StatusBadRequest, fmt.Sprintf("invalid blocker title: %q", title))
+			return
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	st := s.findStep(pd, r.PathValue("step"))
+	if st == nil {
+		writeErr(w, http.StatusNotFound, fmt.Sprintf("step %q not found", r.PathValue("step")))
+		return
+	}
+	var target *types.Blocker
+	for i := range st.Blockers {
+		if st.Blockers[i].ID == r.PathValue("blk") {
+			target = &st.Blockers[i]
+			break
+		}
+	}
+	if target == nil {
+		writeErr(w, http.StatusNotFound, fmt.Sprintf("blocker %q not found", r.PathValue("blk")))
+		return
+	}
+	if req.Title != nil {
+		newID := slug.Of(title)
+		for i := range st.Blockers {
+			if st.Blockers[i].ID != target.ID && st.Blockers[i].ID == newID {
+				writeErr(w, http.StatusConflict, fmt.Sprintf("blocker %q already exists", newID))
+				return
+			}
+		}
+		target.Title = title
+	}
+	if req.Reason != nil {
+		target.Reason = *req.Reason
+	}
+	target.UpdatedAt = types.NowTimestamp()
+	if err := s.store.SaveBlocker(*target); err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("save blocker: %v", err))
+		return
+	}
+	s.commit("patch_blocker " + target.ID)
+	writeJSON(w, http.StatusOK, target)
 }
 
 func (s *Server) handleBlockerDelete(w http.ResponseWriter, r *http.Request) {

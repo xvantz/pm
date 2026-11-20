@@ -155,6 +155,17 @@ func (c *Client) PatchStep(ref, step, title string) (*types.Step, error) {
 	return &out, nil
 }
 
+// PatchBlocker edits a blocker's title and/or reason (nil = leave alone).
+func (c *Client) PatchBlocker(ref, step, blk string, title, reason *string) (*types.Blocker, error) {
+	var out types.Blocker
+	err := c.do("PATCH", "/api/projects/"+url.PathEscape(ref)+"/steps/"+url.PathEscape(step)+"/blockers/"+url.PathEscape(blk),
+		map[string]any{"title": title, "reason": reason}, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // DeleteProject moves a project to trash.
 func (c *Client) DeleteProject(ref string) (string, error) {
 	var out map[string]string
