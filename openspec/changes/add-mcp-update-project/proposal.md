@@ -25,17 +25,20 @@
   тому же правилу, что `ErrEmptyTitle` при создании.
 - `apistore.SaveProject` передаёт `title` в `PATCH`. Без этого поле
   меняется в памяти клиента и теряется на диске — текущее поведение.
+- Версия CLI запинена: `@fission-ai/openspec@1.9.0` в `ci.yml` и в
+  `scripts/hooks/pre-commit` вместо `@latest`. Проверено на `origin/main`
+  (2026-11-20): на 1.9.0 `validate --all --strict` даёт 7/7 passed, на
+  2.1.0/2.1.1 — 5 спек падают на новом линте «Requirement text is very
+  long (>500 characters)». То есть гейт ломался не кодом, а обновлением
+  `@latest`; без пина любой PR красный.
 
 ## Non-goals
 
-- Не чиним здесь красный `validate --all --strict` на baseline: проверено на
-  `origin/main` (2026-11-20) версиями CLI 1.15.0, 2.0.0, 2.1.0 и 2.1.1 — 5
-  спек падают на предупреждении «Requirement text is very long (>500
-  characters)» (`cli-lifecycle`, `project-store`, `serve-api`,
-  `store-git-backup`, `mcp-server`). CI зелёный только потому, что его
-  последний прогон старше текущего `@latest`: версия CLI в `ci.yml` не
-  запинена. Лечится отдельным изменением (разбить длинные требования +
-  запинить версию CLI), иначе этот change утонет в чужом долге.
+- Не разбиваем длинные требования ради перехода на openspec 2.x: пин на
+  1.9.0 возвращает гейт сразу, а переписывание пяти спек — отдельная
+  работа с риском дрейфа. Записанный факт для будущего изменения: на 2.1.x
+  `validate --all --strict` падает на `cli-lifecycle`, `project-store`,
+  `serve-api`, `store-git-backup`, `mcp-server`.
 - `update_step` (переименование шага) — отдельное изменение: нужен новый
   роут `PATCH /api/projects/{ref}/steps/{step}` и метод стора, сейчас есть
   только действия `start/review/done`.
@@ -51,4 +54,5 @@
   `title`; остальные строки требования без изменений).
 - Affected code: `internal/mcp/tools.go`, `internal/mcp/update_project_test.go`
   (новый), `internal/api/server.go`, `internal/api/patch_title_test.go`
-  (новый), `internal/apistore/apistore.go`.
+  (новый), `internal/apistore/apistore.go`, `.forgejo/workflows/ci.yml`,
+  `scripts/hooks/pre-commit`.

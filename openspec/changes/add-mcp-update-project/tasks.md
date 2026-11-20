@@ -1,5 +1,12 @@
 # Tasks: add-mcp-update-project
 
+- [ ] 1.0 Пин версии openspec CLI
+  **DoD:** `validate --all --strict` даёт 0 failed в CI на PR; версия
+  `1.9.0` стоит в `.forgejo/workflows/ci.yml` и `scripts/hooks/pre-commit`;
+  доказательство, что виноват был `@latest`: на 2.1.x тот же baseline даёт
+  5 failed
+  **Файлы:** `.forgejo/workflows/ci.yml`, `scripts/hooks/pre-commit`
+
 - [ ] 1.1 API принимает `title` в `PATCH /api/projects/{ref}`
   **DoD:** `go test ./internal/api/` зелёный; новый тест
   `TestProjectPatch_Title` проходит; запрос с `{"title":""}` даёт `400`,
