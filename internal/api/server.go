@@ -54,6 +54,7 @@ func NewWithBackup(st store.Store, token string, bk *gitbackup.Backup) *Server {
 	s.mux.HandleFunc("GET /api/projects/{ref}/close-plan", s.auth(s.handleProjectClosePlan))
 	s.mux.HandleFunc("GET /api/projects/{ref}/steps", s.auth(s.handleStepsList))
 	s.mux.HandleFunc("POST /api/projects/{ref}/steps", s.auth(s.handleStepCreate))
+	s.mux.HandleFunc("PATCH /api/projects/{ref}/steps/{step}", s.auth(s.handleStepPatch))
 	s.mux.HandleFunc("POST /api/projects/{ref}/steps/{step}/{action}", s.auth(s.handleStepAction))
 	s.mux.HandleFunc("DELETE /api/projects/{ref}/steps/{step}", s.auth(s.handleStepDelete))
 	s.mux.HandleFunc("GET /api/projects/{ref}/blockers", s.auth(s.handleBlockersList))
@@ -195,6 +196,7 @@ func (s *Server) handleProjectGet(w http.ResponseWriter, r *http.Request) {
 }
 
 type patchProjectReq struct {
+	Title  *string              `json:"title,omitempty"`
 	Goal   *string              `json:"goal,omitempty"`
 	Status *types.ProjectStatus `json:"status,omitempty"`
 	Tags   []string             `json:"tags,omitempty"`
@@ -211,6 +213,14 @@ func (s *Server) handleProjectPatch(w http.ResponseWriter, r *http.Request) {
 	pd := s.resolve(w, r.PathValue("ref"))
 	if pd == nil {
 		return
+	}
+	if req.Title != nil {
+		title := strings.TrimSpace(*req.Title)
+		if title == "" {
+			writeErr(w, http.StatusBadRequest, "title cannot be empty")
+			return
+		}
+		pd.Project.Title = title
 	}
 	if req.Goal != nil {
 		pd.Project.Goal = *req.Goal
@@ -407,6 +417,61 @@ func (s *Server) findStep(pd *types.ProjectData, stepID string) *types.Step {
 		}
 	}
 	return nil
+}
+
+type patchStepReq struct {
+	Title *string `json:"title"`
+}
+
+// handleStepPatch renames a step. The step id is a slug of the title at
+// creation time and stays stable afterwards: it is the identity referenced by
+// blockers, decisions and the UI, so a rename does not move it.
+func (s *Server) handleStepPatch(w http.ResponseWriter, r *http.Request) {
+	var req patchStepReq
+	if !decode(w, r, &req) {
+		return
+	}
+	if req.Title == nil {
+		writeErr(w, http.StatusBadRequest, "title is required")
+		return
+	}
+	title := strings.TrimSpace(*req.Title)
+	if title == "" {
+		writeErr(w, http.StatusBadRequest, "title cannot be empty")
+		return
+	}
+	if slug.Of(title) == "" {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("invalid step title: %q", title))
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	pd := s.resolve(w, r.PathValue("ref"))
+	if pd == nil {
+		return
+	}
+	st := s.findStep(pd, r.PathValue("step"))
+	if st == nil {
+		writeErr(w, http.StatusNotFound, fmt.Sprintf("step %q not found", r.PathValue("step")))
+		return
+	}
+	newID := slug.Of(title)
+	for i := range pd.Steps {
+		if pd.Steps[i].ID != st.ID && pd.Steps[i].ID == newID {
+			writeErr(w, http.StatusConflict, fmt.Sprintf("step %q already exists", newID))
+			return
+		}
+	}
+	st.Title = title
+	st.UpdatedAt = types.NowTimestamp()
+	if err := s.store.SaveStep(*st); err != nil {
+		writeErr(w, http.StatusInternalServerError, fmt.Sprintf("save step: %v", err))
+		return
+	}
+	s.commit("patch_step " + st.ID)
+	writeJSON(w, http.StatusOK, st)
 }
 
 func (s *Server) handleStepAction(w http.ResponseWriter, r *http.Request) {

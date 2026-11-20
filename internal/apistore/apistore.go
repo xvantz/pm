@@ -95,7 +95,7 @@ func (s *Store) SaveProject(p types.Project) error {
 		_, cerr := s.c.CreateProject(p.Title, p.Goal, p.Tags, p.ID)
 		return cerr
 	}
-	_, err := s.c.PatchProject(p.ID, &p.Goal, &p.Status, p.Tags)
+	_, err := s.c.PatchProject(p.ID, &p.Title, &p.Goal, &p.Status, p.Tags)
 	return err
 }
 
@@ -114,6 +114,12 @@ func (s *Store) SaveStep(st types.Step) error {
 	if cur == nil {
 		_, err := s.c.AddStep(st.ProjectID, st.Title)
 		return err
+	}
+	if cur.Title != st.Title {
+		if _, err := s.c.PatchStep(st.ProjectID, cur.ID, st.Title); err != nil {
+			return err
+		}
+		cur.Title = st.Title
 	}
 	if cur.Status == st.Status {
 		return nil
