@@ -106,6 +106,22 @@ func RegisterPMTools(s *Server, st store.Store) {
 			Handler: makeHandler(st, handleUpdateStep),
 		},
 		{
+			Name:        "update_blocker",
+			Description: "Edit a blocker's title and/or reason. The blocker id stays stable, so references keep working.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"},
+					"step_id": {"type": "string", "description": "Step slug/ID (see id in list_steps)"},
+					"blocker_id": {"type": "string", "description": "Blocker id (see get_step)"},
+					"title": {"type": "string", "description": "New blocker title"},
+					"reason": {"type": "string", "description": "New reason; empty string clears it"}
+				},
+				"required": ["project_id", "step_id", "blocker_id"]
+			}`),
+			Handler: makeHandler(st, handleUpdateBlocker),
+		},
+		{
 			Name:        "add_step",
 			Description: "Add a step to a project (starts as todo). Advance it with start_step -> review_step -> done_step.",
 			InputSchema: json.RawMessage(`{
@@ -782,6 +798,83 @@ func handleUpdateStep(st store.Store, ctx context.Context, args json.RawMessage)
 
 	return fmt.Sprintf("Step %q renamed to %q (id %q stays stable).\n\nNext: get_step {project_id: %q, step_id: %q}",
 		old, target.Title, target.ID, pd.Project.ID, target.ID), nil
+}
+
+func handleUpdateBlocker(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		ProjectID string  `json:"project_id"`
+		StepID    string  `json:"step_id"`
+		BlockerID string  `json:"blocker_id"`
+		Title     *string `json:"title"`
+		Reason    *string `json:"reason"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "", badArgs(err, "{project_id, step_id, blocker_id, title|reason}")
+	}
+	if params.ProjectID == "" || params.StepID == "" || params.BlockerID == "" {
+		return "", fmt.Errorf("project_id, step_id and blocker_id are required")
+	}
+	if params.Title == nil && params.Reason == nil {
+		return "", fmt.Errorf("nothing to update: pass title or reason")
+	}
+	var title string
+	if params.Title != nil {
+		title = strings.TrimSpace(*params.Title)
+		if title == "" {
+			return "", fmt.Errorf("title cannot be empty")
+		}
+		if slug.Of(title) == "" {
+			return "", fmt.Errorf("invalid title: %q", title)
+		}
+	}
+
+	pd, err := st.ResolveProject(params.ProjectID)
+	if err != nil {
+		return "", fmt.Errorf("find project %q: %w", params.ProjectID, err)
+	}
+	steps, err := st.GetSteps(pd.Project.ID)
+	if err != nil {
+		return "", fmt.Errorf("read steps: %w", err)
+	}
+	var step *types.Step
+	for i := range steps {
+		if steps[i].ID == params.StepID {
+			step = &steps[i]
+			break
+		}
+	}
+	if step == nil {
+		return "", fmt.Errorf("step %q not found in project #%d", params.StepID, pd.Project.Number)
+	}
+	var target *types.Blocker
+	for i := range step.Blockers {
+		if step.Blockers[i].ID == params.BlockerID {
+			target = &step.Blockers[i]
+			break
+		}
+	}
+	if target == nil {
+		return "", fmt.Errorf("blocker %q not found in step %q", params.BlockerID, step.ID)
+	}
+	if params.Title != nil {
+		newID := slug.Of(title)
+		for i := range step.Blockers {
+			if step.Blockers[i].ID != target.ID && step.Blockers[i].ID == newID {
+				return "", fmt.Errorf("blocker %q already exists in this step", newID)
+			}
+		}
+		target.Title = title
+	}
+	if params.Reason != nil {
+		target.Reason = *params.Reason
+	}
+	target.UpdatedAt = types.NowTimestamp()
+	if err := st.SaveBlocker(*target); err != nil {
+		return "", fmt.Errorf("save blocker: %w", err)
+	}
+
+	return fmt.Sprintf("Blocker %q updated (id %q stays stable).\nTitle: %s\nReason: %s\nStatus: %s",
+		target.ID, target.ID, target.Title, target.Reason, target.Status), nil
 }
 
 func handleAddStep(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
