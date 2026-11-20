@@ -612,8 +612,12 @@ func TestRegisterPMTools(t *testing.T) {
 	s := NewServer("pm-mcp", "0.1.0")
 	RegisterPMTools(s, st)
 
+	// Names that every build must expose. Deliberately not a total count: the
+	// live tools/list is the catalogue (see mcp-server spec), so a new tool
+	// must not need an edit here.
 	expected := []string{
 		"list_projects", "get_project", "get_step", "add_project", "add_step",
+		"update_project", "update_step",
 		"start_step", "review_step", "done_step",
 		"add_blocker", "resolve_blocker", "add_decision",
 		"get_briefing",
@@ -622,13 +626,12 @@ func TestRegisterPMTools(t *testing.T) {
 		"trash_list", "trash_restore",
 	}
 
-	if len(s.tools) != len(expected) {
-		t.Fatalf("got %d tools, want %d", len(s.tools), len(expected))
-	}
-
 	// Check all tool names
 	names := make(map[string]bool)
 	for _, tool := range s.tools {
+		if names[tool.Name] {
+			t.Errorf("duplicate tool name: %s", tool.Name)
+		}
 		names[tool.Name] = true
 	}
 	for _, name := range expected {

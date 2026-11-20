@@ -76,6 +76,36 @@ func RegisterPMTools(s *Server, st store.Store) {
 			Handler: makeHandler(st, handleAddProject),
 		},
 		{
+			Name:        "update_project",
+			Description: "Change an existing project's title, goal, tags or status. Pass at least one field; omitted fields keep their value.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"},
+					"title": {"type": "string", "description": "New title (rename)"},
+					"goal": {"type": "string", "description": "New goal"},
+					"tags": {"type": "array", "items": {"type": "string"}, "description": "New tag list; [] clears it"},
+					"status": {"type": "string", "enum": ["idea", "active", "paused", "completed"], "description": "New project status"}
+				},
+				"required": ["project_id"]
+			}`),
+			Handler: makeHandler(st, handleUpdateProject),
+		},
+		{
+			Name:        "update_step",
+			Description: "Rename a step. The step id (slug) stays stable, so blockers and decisions keep pointing at it.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"project_id": {"type": "string", "description": "Project number or UUID (see list_projects)"},
+					"step_id": {"type": "string", "description": "Step slug/ID (see id in list_steps)"},
+					"title": {"type": "string", "description": "New step title"}
+				},
+				"required": ["project_id", "step_id", "title"]
+			}`),
+			Handler: makeHandler(st, handleUpdateStep),
+		},
+		{
 			Name:        "add_step",
 			Description: "Add a step to a project (starts as todo). Advance it with start_step -> review_step -> done_step.",
 			InputSchema: json.RawMessage(`{
@@ -632,6 +662,126 @@ func handleAddProject(st store.Store, ctx context.Context, args json.RawMessage)
 
 	return fmt.Sprintf("Project #%d %q created.\nID: %s\n\nNext: add_step {project_id: %q} to add the first step",
 		p.Number, p.Title, p.ID, p.ID), nil
+}
+
+func handleUpdateProject(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		ProjectID string   `json:"project_id"`
+		Title     *string  `json:"title"`
+		Goal      *string  `json:"goal"`
+		Tags      []string `json:"tags"`
+		Status    *string  `json:"status"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "", badArgs(err, "{project_id, title|goal|tags|status}")
+	}
+	if params.ProjectID == "" {
+		return "", fmt.Errorf("project_id is required")
+	}
+	if params.Title == nil && params.Goal == nil && params.Tags == nil && params.Status == nil {
+		return "", fmt.Errorf("nothing to update: pass at least one of title, goal, tags, status")
+	}
+
+	var title *string
+	if params.Title != nil {
+		t := strings.TrimSpace(*params.Title)
+		if t == "" {
+			return "", fmt.Errorf("title cannot be empty")
+		}
+		title = &t
+	}
+
+	var status *types.ProjectStatus
+	if params.Status != nil {
+		candidate := types.ProjectStatus(*params.Status)
+		switch candidate {
+		case types.StatusIdea, types.StatusActive, types.StatusPaused, types.StatusCompleted:
+			status = &candidate
+		default:
+			return "", fmt.Errorf("bad status %q: accepted idea, active, paused, completed", *params.Status)
+		}
+	}
+
+	pd, err := st.ResolveProject(params.ProjectID)
+	if err != nil {
+		return "", fmt.Errorf("find project %q: %w", params.ProjectID, err)
+	}
+	p := pd.Project
+	if title != nil {
+		p.Title = *title
+	}
+	if params.Goal != nil {
+		p.Goal = *params.Goal
+	}
+	if params.Tags != nil {
+		p.Tags = params.Tags
+	}
+	if status != nil {
+		p.Status = *status
+	}
+	p.UpdatedAt = types.NowTimestamp()
+	if err := st.SaveProject(p); err != nil {
+		return "", fmt.Errorf("save project: %w", err)
+	}
+
+	return fmt.Sprintf("Project #%d updated.\nTitle: %s\nGoal: %s\nTags: %s\nStatus: %s\n\nNext: list_steps {project_id: %q}",
+		p.Number, p.Title, p.Goal, strings.Join(p.Tags, ", "), p.Status, p.ID), nil
+}
+
+func handleUpdateStep(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		ProjectID string `json:"project_id"`
+		StepID    string `json:"step_id"`
+		Title     string `json:"title"`
+	}
+	if err := json.Unmarshal(args, &params); err != nil {
+		return "", badArgs(err, "{project_id, step_id, title}")
+	}
+	if params.ProjectID == "" || params.StepID == "" {
+		return "", fmt.Errorf("project_id and step_id are required")
+	}
+	title := strings.TrimSpace(params.Title)
+	if title == "" {
+		return "", fmt.Errorf("title cannot be empty")
+	}
+	if slug.Of(title) == "" {
+		return "", fmt.Errorf("invalid title: %q", params.Title)
+	}
+
+	pd, err := st.ResolveProject(params.ProjectID)
+	if err != nil {
+		return "", fmt.Errorf("find project %q: %w", params.ProjectID, err)
+	}
+	steps, err := st.GetSteps(pd.Project.ID)
+	if err != nil {
+		return "", fmt.Errorf("read steps: %w", err)
+	}
+	var target *types.Step
+	for i := range steps {
+		if steps[i].ID == params.StepID {
+			target = &steps[i]
+			break
+		}
+	}
+	if target == nil {
+		return "", fmt.Errorf("step %q not found in project #%d", params.StepID, pd.Project.Number)
+	}
+	newID := slug.Of(title)
+	for i := range steps {
+		if steps[i].ID != target.ID && steps[i].ID == newID {
+			return "", fmt.Errorf("step %q already exists (project titles must stay unique after rename)", newID)
+		}
+	}
+
+	old := target.Title
+	target.Title = title
+	target.UpdatedAt = types.NowTimestamp()
+	if err := st.SaveStep(*target); err != nil {
+		return "", fmt.Errorf("save step: %w", err)
+	}
+
+	return fmt.Sprintf("Step %q renamed to %q (id %q stays stable).\n\nNext: get_step {project_id: %q, step_id: %q}",
+		old, target.Title, target.ID, pd.Project.ID, target.ID), nil
 }
 
 func handleAddStep(st store.Store, ctx context.Context, args json.RawMessage) (string, error) {

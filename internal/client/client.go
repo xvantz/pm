@@ -132,12 +132,23 @@ func (c *Client) CreateProject(title, goal string, tags []string, id string) (*t
 	return &out, nil
 }
 
-// PatchProject updates goal/status/tags (nil = leave alone).
-func (c *Client) PatchProject(ref string, goal *string, status *types.ProjectStatus, tags []string) (*types.Project, error) {
+// PatchProject updates title/goal/status/tags (nil = leave alone).
+func (c *Client) PatchProject(ref string, title, goal *string, status *types.ProjectStatus, tags []string) (*types.Project, error) {
 	var out types.Project
 	err := c.do("PATCH", "/api/projects/"+url.PathEscape(ref), map[string]any{
-		"goal": goal, "status": status, "tags": tags,
+		"title": title, "goal": goal, "status": status, "tags": tags,
 	}, &out)
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// PatchStep renames a step; its id stays stable.
+func (c *Client) PatchStep(ref, step, title string) (*types.Step, error) {
+	var out types.Step
+	err := c.do("PATCH", "/api/projects/"+url.PathEscape(ref)+"/steps/"+url.PathEscape(step),
+		map[string]any{"title": title}, &out)
 	if err != nil {
 		return nil, err
 	}

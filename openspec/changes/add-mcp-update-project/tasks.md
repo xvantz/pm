@@ -1,38 +1,56 @@
 # Tasks: add-mcp-update-project
 
-- [ ] 1.0 Пин версии openspec CLI
+- [x] 1.0 Пин версии openspec CLI
   **DoD:** `validate --all --strict` даёт 0 failed в CI на PR; версия
   `1.9.0` стоит в `.forgejo/workflows/ci.yml` и `scripts/hooks/pre-commit`;
   доказательство, что виноват был `@latest`: на 2.1.x тот же baseline даёт
   5 failed
   **Файлы:** `.forgejo/workflows/ci.yml`, `scripts/hooks/pre-commit`
+  **Результат:** run 87 (PR #44) — CI success на 1.9.0; на 2.1.0/2.1.1
+  baseline даёт 5 failed
 
-- [ ] 1.1 API принимает `title` в `PATCH /api/projects/{ref}`
-  **DoD:** `go test ./internal/api/` зелёный; новый тест
-  `TestProjectPatch_Title` проходит; запрос с `{"title":""}` даёт `400`,
-  а `GET` после него отдаёт старый заголовок
+- [x] 1.1 API принимает `title` в `PATCH /api/projects/{ref}`
+  **DoD:** `go test ./internal/api/` зелёный; запрос с `{"title":""}` даёт
+  `400`, а `GET` после него отдаёт старый заголовок
   **Файлы:** `internal/api/server.go`, `internal/api/patch_title_test.go`
+  **Результат:** `TestProjectPatch_TitleRenamesOnly`,
+  `TestProjectPatch_EmptyTitleRefused` — pass
 
-- [ ] 1.2 `apistore` отправляет `title` в теле PATCH
-  **DoD:** `go test ./internal/apistore/` зелёный; тест проверяет тело
-  запроса (`title` есть, `tags: []` отправляется), а не только ответ
-  **Файлы:** `internal/apistore/apistore.go`, `internal/apistore/apistore_test.go`
+- [x] 1.2 Переименование шага в API
+  **DoD:** `PATCH /api/projects/{ref}/steps/{step}` меняет только заголовок,
+  id не двигается; пустой `title` → `400`; slug-коллизия → `409`;
+  неизвестный шаг → `404`
+  **Файлы:** `internal/api/server.go`, `internal/api/patch_title_test.go`
+  **Результат:** четыре теста `TestStepPatch_*` — pass
 
-- [ ] 1.3 MCP-инструмент `update_project`
-  **DoD:** `go test ./internal/mcp/` зелёный; `tools/list` содержит
-  `update_project` со схемой-объектом; все сценарии из delta-спеки
-  покрыты тестами `internal/mcp/update_project_test.go`
-  **Файлы:** `internal/mcp/tools.go`, `internal/mcp/update_project_test.go`
+- [x] 1.3 `apistore` доносит title до демона (проект и шаг)
+  **DoD:** регресс-тесты падают на старом коде и зеленеют на новом: со
+  снятым `&p.Title` тест даёт `title = "Old Name", want "New Name"`
+  **Файлы:** `internal/apistore/apistore.go`,
+  `internal/apistore/rename_test.go`, `internal/client/client.go`
+  **Результат:** `TestRemote_RenameProjectPropagates`,
+  `TestRemote_RenameStepPropagates` — pass на новом коде и fail на старом
+  (проверено временным откатом строки)
 
-- [ ] 1.4 Проверка в живом MCP
-  **DoD:** в текущей сессии `update_project` переименовывает проект #17
-  (проверено `list_projects`), затем возвращает исходное имя; статус
-  переключается туда и обратно; `update_project` без полей отдаёт ошибку
+- [x] 1.4 MCP-инструменты `update_project` и `update_step`
+  **DoD:** `go test ./internal/mcp/` зелёный; `tools/list` содержит оба
+  инструмента; все сценарии из дельт покрыты
+  **Файлы:** `internal/mcp/tools.go`,
+  `internal/mcp/update_project_test.go`, `internal/mcp/update_step_test.go`,
+  `internal/mcp/mcp_test.go`
+  **Результат:** 8 тестов `update_project`, 4 теста `update_step` — pass;
+  жёсткий счётчик инструментов в `TestRegisterPMTools` убран (спека прямо
+  запрещает хардкодить количество: живой `tools/list` и есть каталог)
+
+- [ ] 1.5 Проверка в живом MCP
+  **DoD:** в текущей сессии `update_project` переименовывает проект #17 и
+  возвращает имя обратно (проверено `list_projects`); `update_step`
+  переименовывает шаг и оставляет id; вызов без полей отдаёт ошибку
   **Файлы:** пересборка `pm-mcp` + `pm-serve` на хосте
 
-- [ ] 1.5 Валидация, PR, архив
+- [ ] 1.6 Валидация, PR, архив
   **DoD:** `validate --all --strict` 0 failed; `go vet ./...` и
-  `CGO_ENABLED=0 go test ./...` зелёные; Forgejo run success; спека
+  `CGO_ENABLED=0 go test ./...` зелёные; Forgejo run success; спеки
   `mcp-server` и `serve-api` обновлены в baseline, изменение в
   `openspec/changes/archive/`
   **Файлы:** `openspec/specs/mcp-server/spec.md`,

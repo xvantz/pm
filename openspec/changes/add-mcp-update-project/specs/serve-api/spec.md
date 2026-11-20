@@ -19,6 +19,9 @@ Reads SHALL return the same JSON shapes as MCP read tools:
   duplicate title yields `409`)
 - `POST /api/projects/{ref}/steps/{step}/{start,review,done}` ->
   `Step` with domain lifecycle validation (`422` on illegal transition)
+- `PATCH /api/projects/{ref}/steps/{step}` `{title}` -> `Step`
+  (rename; the step id stays stable, empty title is `400`, a title whose slug
+  collides with another step is `409`)
 - `DELETE /api/projects/{ref}/steps/{step}` -> `200`
 - `GET /api/projects/{ref}/blockers` -> `[]Blocker`
 - `POST /api/projects/{ref}/steps/{step}/blockers` `{title, reason?}`

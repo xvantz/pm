@@ -31,6 +31,28 @@ after the write.
 - **WHEN** `update_project` is called with only `project_id`
 - **THEN** the call fails with an argument error listing the accepted fields, and nothing is written
 
+### Requirement: Step rename tool
+
+The server SHALL expose `update_step` with required `project_id`, `step_id`
+and `title`. It renames the step and MUST keep the step id unchanged, because
+blockers, decisions and UI links reference the id and not the current title.
+The result SHALL report the new title and the unchanged id.
+
+#### Scenario: Rename a step
+
+- **WHEN** `update_step` is called with an existing `step_id` and a new non-empty `title`
+- **THEN** the stored step carries the new title with the same id, the same status and its blockers intact
+
+#### Scenario: Rename collides with another step
+
+- **WHEN** the new title slugs to an id already used by a different step in the project
+- **THEN** the call fails naming the colliding id, and both steps keep their titles
+
+#### Scenario: Unknown step
+
+- **WHEN** `update_step` is called with a `step_id` that does not exist in that project
+- **THEN** the call fails with a not-found error quoting the step and the project number
+
 ### Requirement: Project update validation
 
 The call MUST reject an empty `title`, a `status` outside the domain set
